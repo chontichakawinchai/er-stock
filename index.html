@@ -698,12 +698,13 @@ let itemTrack={};
 let activeCat='all';  // current category filter
 
 // ─── SKIP SHEETS ── ชื่อ sheet ที่ไม่ใช่รายการวัสดุ
-const SKIP_SHEETS_RE=/^(In-Out|Total\s?Stock|UTIL|รง\.|e-GP|บันทึก|ใบสั่ง|ใบจ่าย|Stock\s?\(2\)|ชื้อ|จ่าย|รับแยก|จ่ายหน่วย|Sheet\d*|No\.ขอ|ใบต่อ|รายงาน)/i;
-const TARGET_SHEETS=['Total Stock','Stock-card','ใบเบิกวัสดุ'];
+const SKIP_SHEETS_RE=/^(In-Out|UTIL|รง\.|e-GP|บันทึก|ใบสั่ง|ใบจ่าย|ใบเบิก|Stock\s?\(2\)|ชื้อ|จ่าย|รับแยก|จ่ายหน่วย|Sheet\d*|No\.ขอ|ใบต่อ|รายงาน)/i;
+// "Total Stock" และ "Stock-card" ให้ผ่านได้
+const TARGET_SHEETS=['Total Stock','Stock-card'];
 // คอลัมน์ชื่อวัสดุที่อาจพบ
 const NAME_COL_RE=/รายการวัสดุ|รายการ|ชื่อวัสดุ|ชื่อ|List|name/i;
 const SEQ_COL_RE=/ลำดับ|ลำดับที่|#|seq|no\./i;
-const UNIT_COL_RE=/หน่วยนับ|หน่วย|unit/i;
+const UNIT_COL_RE=/หน่วยนับ|unit/i;
 const QTY_COL_RE=/คงเหลือ\(จำนวน\)|คงเหลือ|จำนวน|qty|stock/i;
 const MAX_COL_RE=/fix|max|จำนวนสูง|อย่างสูง/i;
 
@@ -1063,8 +1064,11 @@ function importExcel(input){
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',raw:false,cellDates:true});
       const allSheets=wb.SheetNames;
 
-      // กรอง sheet ที่ไม่ใช่รายการวัสดุ
-      const validSheets=allSheets.filter(s=>!SKIP_SHEETS_RE.test(s));
+      // กรอง sheet และเรียงลำดับ: Total Stock ก่อน
+      const prioritize=(s)=>{if(/Total[\s]?Stock/i.test(s))return 0;if(/Stock.card/i.test(s))return 1;return 2;};
+      const validSheets=allSheets.filter(s=>!SKIP_SHEETS_RE.test(s)).sort((a,b)=>prioritize(a)-prioritize(b));
+
+
 
       if(!validSheets.length){
         setIP(`<div style="color:var(--orange);padding:10px;font-size:13px">⚠️ ไม่พบ Sheet รายการวัสดุ<br><small style="color:var(--text3)">Sheet ที่พบ: ${allSheets.join(', ')}</small></div>`);
@@ -1105,11 +1109,16 @@ function parseSheetRows(rows, sheetName){
       hRow=i; cName=ni;
       cSeq=r.findIndex(c=>SEQ_COL_RE.test(c)); if(cSeq<0)cSeq=0;
       cUnit=r.findIndex(c=>UNIT_COL_RE.test(c));
-      cQty=r.findIndex(c=>QTY_COL_RE.test(c));
-      // คงเหลือ — ลองหาคอลัมน์ที่เหมาะสม (อาจมีหลายคอลัมน์ที่ match)
-      // ให้เลือกคอลัมน์สุดท้ายที่ match (มักเป็น "คงเหลือ(จำนวน)")
-      const allQtyIdx=r.reduce((acc,c,idx)=>{if(QTY_COL_RE.test(c))acc.push(idx);return acc;},[]);
-      if(allQtyIdx.length>0)cQty=allQtyIdx[allQtyIdx.length-1];
+      // หา คงเหลือ(จำนวน) ก่อน ถ้าไม่มีค่อย fallback
+      const EXACT_QTY=/คงเหลือ.*จำนวน/i;
+      const FALLBACK_QTY=/ยกมา.*จำนวน/i;
+      const allCols=r;
+      cQty=allCols.findIndex(c=>EXACT_QTY.test(c));
+      if(cQty<0)cQty=allCols.findIndex(c=>QTY_COL_RE.test(c));
+      if(cQty<0)cQty=allCols.findIndex(c=>FALLBACK_QTY.test(c));
+      // ถ้ามีหลาย match เลือกอันที่ชื่อ "คงเหลือ" ก่อน
+      const allQtyIdx=r.reduce((acc,c,idx)=>{if(EXACT_QTY.test(c))acc.push(idx);return acc;},[]);
+      if(allQtyIdx.length>0)cQty=allQtyIdx[0];
       cMax=r.findIndex(c=>MAX_COL_RE.test(c));
       break;
     }
