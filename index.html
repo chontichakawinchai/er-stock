@@ -733,7 +733,10 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
 </div>
 
 <script>
-let CONFIG={gasUrl:'',sheetId:''};
+let CONFIG={
+  gasUrl:'https://script.google.com/macros/s/AKfycbwP3iyKwvw3BuBjP78D2EMhDSg1673f8zqIr4CjxEkMAaxeejQ-Rw-bRH6DBuXLT9Pa/exec',
+  sheetId:'1K-kih3fPrzA73dvuEtWad_KpZ5NxV_sSKdlhiSegA3E'
+};
 let dbData=[];
 let curPage='home';
 let curSheetItem=null,curScanItem=null;
@@ -756,8 +759,8 @@ function doPost(e){
 
 window.onload=function(){
   document.getElementById('gas-code').value=GAS_CODE;
-  const g=localStorage.getItem('er_gas_url'),s=localStorage.getItem('er_sheet_id');
-  if(g&&s){CONFIG.gasUrl=g;CONFIG.sheetId=s;launchApp();}
+  // config ฝังไว้แล้ว เปิดแอพได้เลย
+  launchApp();
 };
 
 function launchApp(){
