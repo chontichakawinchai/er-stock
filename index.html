@@ -572,6 +572,13 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
           <input type="file" id="import-input" accept=".xlsx,.xls" style="display:none" onchange="importExcel(this)">
           <div id="import-prev" style="display:none"></div>
         </div>
+        <!-- Category Code Settings -->
+        <div style="border:1.5px solid rgba(99,102,241,.3);border-radius:var(--r);padding:14px;margin-bottom:12px;background:rgba(99,102,241,.04)">
+          <div style="font-size:14px;font-weight:700;color:var(--indigo);margin-bottom:4px">🏷️ รหัสย่อหมวดสำหรับ QR</div>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:10px;line-height:1.6">ตั้งรหัสอักษรแทนแต่ละหมวด เช่น M=การแพทย์ → QR จะเป็น M-001</div>
+          <div id="cat-code-list"></div>
+          <div style="font-size:11px;color:var(--text3);margin-top:6px">* ตั้งรหัสได้หลังจาก import Excel แล้วครับ</div>
+        </div>
         <button class="btn btn-secondary" onclick="clearConn()" style="border-color:rgba(239,68,68,.3);color:var(--red)">🗑️ ล้างข้อมูลเชื่อมต่อ</button>
       </div>
     </div>
@@ -696,6 +703,14 @@ let scanStream=null,scanIv=null;
 let histIn=0,histOut=0;
 let itemTrack={};
 let activeCat='all';  // current category filter
+let catCodes={};  // {category: code} e.g. {'วัสดุการแพทย์': 'M'}
+
+function getCatCode(cat){return catCodes[cat]||'';}
+function getItemCode(item){
+  const code=getCatCode(item.category||'');
+  if(!code)return String(item.seq).padStart(3,'0');
+  return code+'-'+String(item.seq).padStart(3,'0');
+}
 
 // ─── SKIP SHEETS ── ชื่อ sheet ที่ไม่ใช่รายการวัสดุ
 const SKIP_SHEETS_RE=/^(In-Out|UTIL|รง\.|e-GP|บันทึก|ใบสั่ง|ใบจ่าย|ใบเบิก|Stock\s?\(2\)|ชื้อ|จ่าย|รับแยก|จ่ายหน่วย|Sheet\d*|No\.ขอ|ใบต่อ|รายงาน)/i;
@@ -728,6 +743,7 @@ function launchApp(){
   document.getElementById('setup').style.display='none';
   document.getElementById('app').style.display='flex';
   document.getElementById('fab').style.display='flex';
+  loadCatCodes();
   document.getElementById('set-sid').innerText=CONFIG.sheetId;
   document.getElementById('set-url').innerText=CONFIG.gasUrl;
   syncData();
@@ -753,6 +769,7 @@ function goPage(name){
   if(name==='history')renderHistoryOverview();
   if(name==='report')renderReportSummary();
   if(name==='stock')renderCatChips();
+  if(name==='settings')renderCatCodeList();
   curPage=name;
 }
 function goHome(){goPage('home');}
@@ -821,9 +838,9 @@ function sheetDel(){
 function showQR(seq){
   const item=dbData.find(i=>i.seq===seq);if(!item)return;
   document.getElementById('qr-name').innerText=item.name;
-  document.getElementById('qr-seq').innerText='ลำดับที่: '+item.seq+(item.category?' | '+item.category:'');
+  document.getElementById('qr-seq').innerText='รหัส: '+getItemCode(item)+(item.category?' | '+item.category:'');
   document.getElementById('qr-canvas').innerHTML='';
-  new QRCode(document.getElementById('qr-canvas'),{text:item.seq+'|'+item.name,width:180,height:180,correctLevel:QRCode.CorrectLevel.H});
+  new QRCode(document.getElementById('qr-canvas'),{text:getItemCode(item),width:180,height:180,correctLevel:QRCode.CorrectLevel.H});
   openModal('qr-modal');
 }
 function printQR(){
@@ -871,6 +888,35 @@ function renderCatChips(){
   document.getElementById('cat-list').innerHTML=cats.map(c=>`<option value="${c}">`).join('');
 }
 function setCat(cat){activeCat=cat;renderCatChips();renderList();}
+
+function renderCatCodeList(){
+  const el=document.getElementById('cat-code-list');if(!el)return;
+  const cats=getCategories();
+  if(!cats.length){el.innerHTML='<div style="font-size:12px;color:var(--text3)">ยังไม่มีหมวด — import Excel ก่อนครับ</div>';return;}
+  el.innerHTML=cats.map(cat=>{
+    const code=catCodes[cat]||'';
+    return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <div style="flex:1;font-size:13px;font-weight:600;color:var(--text)">${cat}</div>
+      <input type="text" value="${code}" maxlength="3" placeholder="A-Z"
+        style="width:60px;text-align:center;background:var(--bg2);border:1.5px solid var(--border);border-radius:8px;color:var(--indigo);font-size:14px;font-weight:700;padding:6px;outline:none;font-family:var(--mono);text-transform:uppercase"
+        oninput="setCatCode('${cat.replace(/'/g,"\'")}',this.value.toUpperCase())"
+        onfocus="this.style.borderColor='var(--indigo)'"
+        onblur="this.style.borderColor='var(--border)'">
+      <div style="font-size:11px;color:var(--text3);font-family:var(--mono);min-width:50px">${code?code+'-001':''}</div>
+    </div>`;
+  }).join('');
+}
+
+function setCatCode(cat,code){
+  catCodes[cat]=code;
+  // save to localStorage
+  localStorage.setItem('er_cat_codes',JSON.stringify(catCodes));
+  renderCatCodeList();
+}
+
+function loadCatCodes(){
+  try{const s=localStorage.getItem('er_cat_codes');if(s)catCodes=JSON.parse(s);}catch(e){}
+}
 
 // ─── RENDER ───
 function renderList(){
@@ -1029,7 +1075,33 @@ function stopScan(){
   const on=document.getElementById('btn-cam-on');if(on)on.style.display='flex';
   const off=document.getElementById('btn-cam-off');if(off)off.style.display='none';
 }
-function handleScan(val){const parts=val.split('|');const seq=parseInt(parts[0]);const item=seq?dbData.find(i=>i.seq===seq):null;if(!item){alert(`ไม่พบลำดับ "${parts[0]}"`);return;}showScanResult(item);}
+function handleScan(val){
+  val=val.trim();
+  // format ใหม่: M-001
+  const newFmt=val.match(/^([A-Za-z]+)-(\d+)$/);
+  if(newFmt){
+    const code=newFmt[1].toUpperCase();
+    const seq=parseInt(newFmt[2]);
+    // หา category ที่ตรงกับ code
+    const cat=Object.keys(catCodes).find(k=>catCodes[k].toUpperCase()===code);
+    if(cat){
+      const item=dbData.find(i=>i.seq===seq&&i.category===cat);
+      if(item){showScanResult(item);return;}
+    }
+    alert(`ไม่พบรหัส "${val}" — ตรวจสอบว่าตั้งรหัสหมวดถูกต้องแล้ว`);
+    return;
+  }
+  // format เก่า: seq อย่างเดียว
+  const seq=parseInt(val.split('|')[0]);
+  if(!seq){alert('QR ไม่ถูกต้อง');return;}
+  const items=dbData.filter(i=>i.seq===seq);
+  if(!items.length){alert(`ไม่พบลำดับ "${seq}"`);return;}
+  if(items.length===1){showScanResult(items[0]);return;}
+  const names=items.map((it,idx)=>`${idx+1}. [${it.category||'-'}] ${it.name}`).join('\n');
+  const pick=prompt(`พบ ${items.length} หมวด ลำดับ ${seq}:\n${names}\n\nพิมพ์หมายเลข:`);
+  const idx=parseInt(pick)-1;
+  if(idx>=0&&idx<items.length)showScanResult(items[idx]);
+}
 function showScanResult(item){
   curScanItem=item;const sc=getStockClass(item);
   const colors={ok:'var(--green)',warn:'#ca8a04',low:'#ea580c',danger:'var(--red)'};const c=colors[sc];
