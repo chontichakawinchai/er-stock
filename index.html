@@ -1213,19 +1213,29 @@ function confirmImport(){
   const selected=sheets.filter(s=>s.selected);
   if(!selected.length)return alert('กรุณาเลือกอย่างน้อย 1 หมวด');
   let added=0,updated=0;
-  // รวบรวมทุก seq ที่มีอยู่แล้ว แล้ว renumber ถ้าจำเป็น
   selected.forEach(s=>{
-    s.items.forEach(item=>{
-      const existing=dbData.find(d=>d.seq===item.seq&&d.category===item.category);
-      if(existing){Object.assign(existing,item);updated++;}
-      else{
-        // ถ้า seq ซ้ำกับ item อื่น ให้ตามสุดท้าย
-        if(dbData.find(d=>d.seq===item.seq&&d.category!==item.category)){
-          item.seq=dbData.length?Math.max(...dbData.map(d=>d.seq))+1:1;
+    // ตรวจว่าหมวดนี้มีอยู่แล้วไหม
+    const catExists=dbData.some(d=>d.category===s.name);
+    if(catExists){
+      // อัปเดตรายการในหมวดเดิม (match ด้วย category+ชื่อ)
+      s.items.forEach(item=>{
+        const existing=dbData.find(d=>d.category===item.category&&d.name===item.name);
+        if(existing){Object.assign(existing,item);updated++;}
+        else{
+          // หมวดเดิมแต่รายการใหม่ — หา seq ว่าง
+          const maxSeq=dbData.length?Math.max(...dbData.map(d=>d.seq)):0;
+          item.seq=maxSeq+1;
+          dbData.push(item);added++;
         }
+      });
+    } else {
+      // หมวดใหม่ทั้งหมด — renumber seq ต่อจาก max ปัจจุบัน
+      const baseSeq=dbData.length?Math.max(...dbData.map(d=>d.seq)):0;
+      s.items.forEach((item,idx)=>{
+        item.seq=baseSeq+idx+1;
         dbData.push(item);added++;
-      }
-    });
+      });
+    }
   });
   renderList();renderCatChips();
   alert(`✅ นำเข้าสำเร็จ!\n📂 ${selected.length} หมวด\n✨ เพิ่มใหม่ ${added} รายการ\n🔄 อัปเดต ${updated} รายการ`);
