@@ -743,9 +743,12 @@ let catCodes={};  // {category: code} e.g. {'วัสดุการแพท�
 
 function getCatCode(cat){return catCodes[cat]||'';}
 function getItemCode(item){
+  // ใช้รหัสถาวรจาก Google Sheet ก่อน
+  if(item.code&&item.code!==String(item.seq))return item.code;
+  // fallback: ใช้รหัสหมวด+ลำดับ
   const code=getCatCode(item.category||'');
   if(!code)return String(item.seq).padStart(3,'0');
-  return code+'-'+String(item.seq).padStart(3,'0');
+  return code+String(item.seq).padStart(3,'0');
 }
 
 // ─── SKIP SHEETS ── ชื่อ sheet ที่ไม่ใช่รายการวัสดุ
@@ -827,7 +830,7 @@ function syncData(){
       dbData=data.data.map(function(item,idx){
         return {
           seq: idx+1,
-          code: item.code||String(idx+1),
+          code: item.code||String(idx+1),  // รหัสถาวรจาก Google Sheet
           name: item.name||'',
           category: item.category||'',
           qty: Number(item.qty)||0,
@@ -1202,30 +1205,26 @@ function stopScan(){
 }
 function handleScan(val){
   val=val.trim();
-  // format ใหม่: M-001
-  const newFmt=val.match(/^([A-Za-z]+)-(\d+)$/);
-  if(newFmt){
-    const code=newFmt[1].toUpperCase();
-    const seq=parseInt(newFmt[2]);
-    // หา category ที่ตรงกับ code
-    const cat=Object.keys(catCodes).find(k=>catCodes[k].toUpperCase()===code);
-    if(cat){
-      const item=dbData.find(i=>i.seq===seq&&i.category===cat);
-      if(item){showScanResult(item);return;}
-    }
-    alert(`ไม่พบรหัส "${val}" — ตรวจสอบว่าตั้งรหัสหมวดถูกต้องแล้ว`);
-    return;
+  // ค้นหาจากรหัสถาวร (M001, G001, L001) ก่อน
+  const byCode=dbData.find(i=>i.code&&i.code.toUpperCase()===val.toUpperCase());
+  if(byCode){showScanResult(byCode);return;}
+  // format M-001 (มีขีด)
+  const dashFmt=val.match(/^([A-Za-z]+)-(\d+)$/i);
+  if(dashFmt){
+    const codeNoDash=dashFmt[1].toUpperCase()+dashFmt[2].padStart(3,'0');
+    const byDash=dbData.find(i=>i.code&&i.code.toUpperCase()===codeNoDash);
+    if(byDash){showScanResult(byDash);return;}
   }
-  // format เก่า: seq อย่างเดียว
+  // fallback: ค้นหาจาก seq
   const seq=parseInt(val.split('|')[0]);
-  if(!seq){alert('QR ไม่ถูกต้อง');return;}
+  if(!seq){alert('ไม่พบรหัส "'+val+'"');return;}
   const items=dbData.filter(i=>i.seq===seq);
-  if(!items.length){alert(`ไม่พบลำดับ "${seq}"`);return;}
+  if(!items.length){alert('ไม่พบรหัส "'+val+'"');return;}
   if(items.length===1){showScanResult(items[0]);return;}
   const names=items.map((it,idx)=>`${idx+1}. [${it.category||'-'}] ${it.name}`).join('\n');
-  const pick=prompt(`พบ ${items.length} หมวด ลำดับ ${seq}:\n${names}\n\nพิมพ์หมายเลข:`);
-  const idx=parseInt(pick)-1;
-  if(idx>=0&&idx<items.length)showScanResult(items[idx]);
+  const pick=prompt(`พบ ${items.length} หมวด:\n${names}\n\nพิมพ์หมายเลข:`);
+  const idx2=parseInt(pick)-1;
+  if(idx2>=0&&idx2<items.length)showScanResult(items[idx2]);
 }
 function showScanResult(item){
   curScanItem=item;const sc=getStockClass(item);
