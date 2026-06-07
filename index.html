@@ -1427,7 +1427,7 @@ function parseSheetRows(rows, sheetName){
     const name=String(r[cName]||'').trim();
     if(!name||name.length<2)continue;
     if(/^[\d\s\-\.]+$/.test(name))continue; // skip pure numeric rows
-    if(/สรุป|รวม|total|หมายเหตุ|note/i.test(name))continue;
+    if(/สรุป|รวม|total|หมายเหตุ|note|ลงชื่อ|ตำแหน่ง|คู่รับ|ผู้รับ|ผู้เบิก|วดป|วัน.*เดือน|^\([\.\s]*\)|^[\.\s\-]+$/i.test(name))continue;
 
     let seq=cSeq>=0?parseInt(r[cSeq]):0;
     if(!seq||isNaN(seq))seq=items.length+1;
