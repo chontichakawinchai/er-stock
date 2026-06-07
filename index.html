@@ -1717,115 +1717,151 @@ function buildCatHtmlTable(cat, items, dateStr){
     </tr>`;
 }
 
+function applySheetStyle(ws, nDataRows, nCols){
+  // สร้าง border style
+  const b={style:'thin',color:{rgb:'94A3B8'}};
+  const ba={top:b,bottom:b,left:b,right:b};
+  const hFill={patternType:'solid',fgColor:{rgb:'1E40AF'}};
+  const tFill={patternType:'solid',fgColor:{rgb:'1E3A5F'}};
+  const sFill={patternType:'solid',fgColor:{rgb:'DBEAFE'}};
+  const sumFill={patternType:'solid',fgColor:{rgb:'F1F5F9'}};
+  const scBg={ok:{rgb:'D1FAE5'},warn:{rgb:'FEF9C3'},low:{rgb:'FFEDD5'},danger:{rgb:'FEE2E2'}};
+  const scFg={ok:{rgb:'065F46'},warn:{rgb:'7C4A00'},low:{rgb:'9A3412'},danger:{rgb:'991B1B'}};
+  const scLabel={'ปกติ':'ok','ใกล้หมด':'warn','น้อยมาก':'low','หมด':'danger'};
+
+  if(!ws['!ref'])return;
+  const range=XLSX.utils.decode_range(ws['!ref']);
+  for(let R=range.s.r;R<=range.e.r;R++){
+    for(let C=range.s.c;C<=range.e.c;C++){
+      const addr=XLSX.utils.encode_cell({r:R,c:C});
+      if(!ws[addr])ws[addr]={t:'s',v:''};
+      const cell=ws[addr];
+      if(!cell.s)cell.s={};
+      if(R===0){ // title
+        cell.s={font:{bold:true,sz:14,color:{rgb:'FFFFFF'}},fill:tFill,alignment:{horizontal:'center',vertical:'center'}};
+      } else if(R===1){ // subtitle
+        cell.s={font:{sz:11,color:{rgb:'1E40AF'}},fill:sFill,alignment:{horizontal:'center'}};
+      } else if(R===2){ // blank
+        cell.s={};
+      } else if(R===3){ // header
+        cell.s={font:{bold:true,sz:11,color:{rgb:'FFFFFF'}},fill:hFill,border:ba,alignment:{horizontal:'center',vertical:'center',wrapText:true}};
+      } else if(R>3 && R<4+nDataRows){ // data
+        const isEven=(R-4)%2===0;
+        const rb={patternType:'solid',fgColor:{rgb:isEven?'F8FAFC':'FFFFFF'}};
+        const isStatusCol=(nCols===7&&C===5)||(nCols===8&&C===6);
+        const isSumCol=(nCols===7&&C===4)||(nCols===8&&C===5);
+        if(isStatusCol && cell.v){
+          const sc=scLabel[cell.v]||'ok';
+          cell.s={font:{bold:true,sz:11,color:scFg[sc]},fill:{patternType:'solid',fgColor:scBg[sc]},border:ba,alignment:{horizontal:'center'}};
+        } else if(isSumCol && typeof cell.v==='number'){
+          const row=ws[XLSX.utils.encode_cell({r:R,c:isStatusCol?C-1:C+1})];
+          const lbl=row?row.v:'';
+          const sc=scLabel[lbl]||'ok';
+          cell.s={font:{bold:true,sz:11,color:scFg[sc]},fill:{patternType:'solid',fgColor:scBg[sc]},border:ba,alignment:{horizontal:'center'}};
+        } else if(C===0){
+          cell.s={font:{bold:true,sz:11,color:{rgb:'4338CA'}},fill:rb,border:ba,alignment:{horizontal:'center'}};
+        } else {
+          cell.s={font:{sz:11},fill:rb,border:ba,alignment:{horizontal:C<=1?'left':'center',vertical:'center'}};
+        }
+      } else if(R===4+nDataRows){ // blank
+        cell.s={};
+      } else if(R===4+nDataRows+1){ // summary
+        cell.s={font:{bold:true,sz:11},fill:sumFill,border:ba};
+      }
+    }
+  }
+}
+
 function exportExcel(lowOnly=false){
   if(!dbData.length)return alert('ยังไม่มีข้อมูล');
   const now=new Date();
   const dateStr=now.toLocaleDateString('th-TH',{year:'numeric',month:'long',day:'numeric'});
   const items=lowOnly?dbData.filter(i=>getStockClass(i)!=='ok'):dbData;
   const cats=getCategories();
-  const thS='border:1.5px solid #94a3b8;padding:7px 8px;font-size:12pt;background:#1e40af;color:white;font-weight:700;text-align:center;';
-  const thNS='border:1.5px solid #94a3b8;padding:7px 8px;font-size:12pt;background:#1e40af;color:white;font-weight:700;text-align:left;';
-  const tdB='border:1.5px solid #94a3b8;padding:5px 7px;font-size:11pt;';
+  const wb=XLSX.utils.book_new();
 
-  // สร้างแต่ละ sheet เป็น worksheet ใน workbook เดียว
-  // ใช้ HTML multi-sheet format
-  const SHEET_SEP='<?mso-application progid="Excel.Sheet"?>';
-
-  let sheetsHtml='';
-
-  // Sheet รวม
-  let allRows='';
-  items.forEach((i,n)=>{
-    const sc=getStockClass(i);const st=getStatusStyle(sc);
-    const pct=i.max>0?Math.round(i.qty/i.max*100):0;
-    const rb=n%2===0?'#f8fafc':'#ffffff';
-    allRows+=`<tr>
-      <td style="${tdB}text-align:center;background:${rb};color:#4338ca;font-weight:700">${i.code||i.seq}</td>
-      <td style="${tdB}text-align:center;background:${rb};color:#6366f1">${i.category||''}</td>
-      <td style="${tdB}background:${rb}">${i.name}</td>
-      <td style="${tdB}text-align:center;background:${rb}">${i.unit}</td>
-      <td style="${tdB}text-align:center;background:${rb}">${i.max}</td>
-      <td style="${tdB}text-align:center;background:${st.bg};color:${st.color};font-weight:700">${i.qty}</td>
-      <td style="${tdB}text-align:center;background:${st.bg};color:${st.color};font-weight:700">${st.label}</td>
-      <td style="${tdB}text-align:center;background:${rb}">${pct}%</td>
-    </tr>`;
+  // ─── Sheet รวมทุกหมวด ───
+  const rows=[
+    ['รายงานวัสดุคงคลัง ห้องฉุกเฉิน (รวมทุกหมวด)','','','','','','',''],
+    [`วันที่พิมพ์: ${dateStr} | ทั้งหมด ${items.length} รายการ`,'','','','','','',''],
+    ['','','','','','','',''],
+    ['รหัส','หมวด','ชื่อรายการ','หน่วย','Max','คงเหลือ','สถานะ','%']
+  ];
+  items.forEach(i=>{
+    const sc=getStockClass(i);const pct=i.max>0?Math.round(i.qty/i.max*100):0;
+    rows.push([i.code||i.seq,i.category||'',i.name,i.unit,i.max,i.qty,getStockLabel(sc),pct+'%']);
   });
+  rows.push(['','','','','','','','']);
+  rows.push([`รวมทั้งหมด: ${items.length} รายการ`,'','','','',`คงเหลือรวม: ${items.reduce((s,i)=>s+i.qty,0)}`,'','']);
+  const ws0=XLSX.utils.aoa_to_sheet(rows);
+  ws0['!cols']=[{wch:9},{wch:14},{wch:36},{wch:8},{wch:7},{wch:10},{wch:10},{wch:6}];
+  ws0['!merges']=[{s:{r:0,c:0},e:{r:0,c:7}},{s:{r:1,c:0},e:{r:1,c:7}},{s:{r:rows.length-1,c:0},e:{r:rows.length-1,c:4}}];
+  applySheetStyle(ws0,items.length,8);
+  XLSX.utils.book_append_sheet(wb,ws0,'รวมทุกหมวด');
 
-  sheetsHtml+=`<table x:Name="รวมทุกหมวด">
-    <tr><td colspan="8" style="background:#1e3a5f;color:white;padding:10px;font-size:15pt;font-weight:700;text-align:center;border:2px solid #1e3a5f">รายงานวัสดุคงคลัง ห้องฉุกเฉิน (รวมทุกหมวด)</td></tr>
-    <tr><td colspan="8" style="background:#dbeafe;color:#1e40af;padding:5px;text-align:center;border:1.5px solid #93c5fd;font-size:11pt">วันที่พิมพ์: ${dateStr} | ทั้งหมด ${items.length} รายการ</td></tr>
-    <tr><td colspan="8" style="border:none;height:10px"></td></tr>
-    <tr>
-      <th style="${thS}width:9%">รหัส</th><th style="${thS}width:10%">หมวด</th>
-      <th style="${thNS}width:30%">ชื่อรายการ</th><th style="${thS}width:7%">หน่วย</th>
-      <th style="${thS}width:7%">Max</th><th style="${thS}width:10%">คงเหลือ</th>
-      <th style="${thS}width:11%">สถานะ</th><th style="${thS}width:8%">%</th>
-    </tr>
-    ${allRows}
-    <tr style="background:#1e3a5f"><td colspan="8" style="border:1.5px solid #1e3a5f;padding:6px 10px;font-size:11pt;font-weight:700;color:white">รวมทั้งหมด ${items.length} รายการ | คงเหลือรวม ${items.reduce((s,i)=>s+i.qty,0)}</td></tr>
-  </table>`;
-
-  // แยก Sheet ตามหมวด
+  // ─── แต่ละหมวด ───
   cats.forEach(cat=>{
     const cItems=items.filter(i=>i.category===cat);
     if(!cItems.length)return;
     const cOk=cItems.filter(i=>getStockClass(i)==='ok').length;
+    const cDanger=cItems.filter(i=>getStockClass(i)==='danger').length;
     const cWarn=cItems.filter(i=>getStockClass(i)==='warn').length;
     const cLow=cItems.filter(i=>getStockClass(i)==='low').length;
-    const cDanger=cItems.filter(i=>getStockClass(i)==='danger').length;
-    let rows='';
-    cItems.forEach((i,n)=>{
-      const sc=getStockClass(i);const st=getStatusStyle(sc);
-      const pct=i.max>0?Math.round(i.qty/i.max*100):0;
-      const rb=n%2===0?'#f8fafc':'#ffffff';
-      rows+=`<tr>
-        <td style="${tdB}text-align:center;background:${rb};color:#4338ca;font-weight:700">${i.code||i.seq}</td>
-        <td style="${tdB}background:${rb}">${i.name}</td>
-        <td style="${tdB}text-align:center;background:${rb}">${i.unit}</td>
-        <td style="${tdB}text-align:center;background:${rb}">${i.max}</td>
-        <td style="${tdB}text-align:center;background:${st.bg};color:${st.color};font-weight:700">${i.qty}</td>
-        <td style="${tdB}text-align:center;background:${st.bg};color:${st.color};font-weight:700">${st.label}</td>
-        <td style="${tdB}text-align:center;background:${rb}">${pct}%</td>
-      </tr>`;
+    const cRows=[
+      [`รายงานวัสดุคงคลัง — ${cat}`,'','','','','',''],
+      [`วันที่พิมพ์: ${dateStr} | ${cItems.length} รายการ`,'','','','','',''],
+      ['','','','','','',''],
+      ['รหัส','ชื่อรายการ','หน่วย','Max','คงเหลือ','สถานะ','%']
+    ];
+    cItems.forEach(i=>{
+      const sc=getStockClass(i);const pct=i.max>0?Math.round(i.qty/i.max*100):0;
+      cRows.push([i.code||i.seq,i.name,i.unit,i.max,i.qty,getStockLabel(sc),pct+'%']);
     });
-    sheetsHtml+=`<br><table x:Name="${cat.substring(0,31)}">
-      <tr><td colspan="7" style="background:#1e40af;color:white;padding:10px;font-size:14pt;font-weight:700;text-align:left;border:2px solid #1e40af">หมวด: ${cat}</td><td style="background:#1e40af;color:#bfdbfe;padding:10px;text-align:right;border:2px solid #1e40af;font-size:11pt">${cItems.length} รายการ</td></tr>
-      <tr><td colspan="8" style="background:#dbeafe;color:#1e40af;padding:5px;text-align:center;border:1.5px solid #93c5fd;font-size:10pt">วันที่พิมพ์: ${dateStr}</td></tr>
-      <tr><td colspan="8" style="border:none;height:8px"></td></tr>
-      <tr>
-        <th style="${thS}width:9%">รหัส</th>
-        <th style="${thNS}width:38%">ชื่อรายการ</th>
-        <th style="${thS}width:8%">หน่วย</th>
-        <th style="${thS}width:8%">Max</th>
-        <th style="${thS}width:11%">คงเหลือ</th>
-        <th style="${thS}width:12%">สถานะ</th>
-        <th style="${thS}width:8%">%</th>
-      </tr>
-      ${rows}
-      <tr style="background:#f1f5f9"><td colspan="7" style="border:1.5px solid #94a3b8;padding:5px 10px;font-size:10pt;color:#374151;font-weight:700">สรุป: ปกติ ${cOk} | ใกล้หมด ${cWarn} | น้อยมาก ${cLow} | หมด ${cDanger} | คงเหลือรวม ${cItems.reduce((s,i)=>s+i.qty,0)}</td></tr>
-    </table>`;
+    cRows.push(['','','','','','','']);
+    cRows.push([`ปกติ ${cOk} | ใกล้หมด ${cWarn} | น้อยมาก ${cLow} | หมด ${cDanger}`,'','','',`คงเหลือรวม: ${cItems.reduce((s,i)=>s+i.qty,0)}`,'','']);
+    const ws=XLSX.utils.aoa_to_sheet(cRows);
+    ws['!cols']=[{wch:9},{wch:38},{wch:8},{wch:7},{wch:10},{wch:10},{wch:6}];
+    ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:6}},{s:{r:1,c:0},e:{r:1,c:6}},{s:{r:cRows.length-1,c:0},e:{r:cRows.length-1,c:3}}];
+    applySheetStyle(ws,cItems.length,7);
+    XLSX.utils.book_append_sheet(wb,ws,cat.substring(0,31));
   });
 
-  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office"
-    xmlns:x="urn:schemas-microsoft-com:office:excel"
-    xmlns="http://www.w3.org/TR/REC-html40">
-<head><meta charset="utf-8">
-<xml><x:ExcelWorkbook><x:ExcelWorksheets>
-  <x:ExcelWorksheet><x:Name>รวมทุกหมวด</x:Name><x:WorksheetOptions><x:Selected/></x:WorksheetOptions></x:ExcelWorksheet>
-  ${cats.map(c=>`<x:ExcelWorksheet><x:Name>${c.substring(0,31)}</x:Name></x:ExcelWorksheet>`).join('')}
-</x:ExcelWorksheets></x:ExcelWorkbook></xml>
-<style>body{font-family:'TH Sarabun New','Angsana New',sans-serif;font-size:14pt}table{border-collapse:collapse;width:100%}@page{margin:1.5cm}</style>
-</head><body>
-${sheetsHtml}
-</body></html>`;
-
-  const blob=new Blob(['﻿'+html],{type:'application/vnd.ms-excel;charset=utf-8'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');a.href=url;
-  const fname=lowOnly?`ER_Stock_ใกล้หมด_${now.toISOString().slice(0,10)}.xls`:`ER_Stock_รายงาน_${now.toISOString().slice(0,10)}.xls`;
-  a.download=fname;a.click();URL.revokeObjectURL(url);
+  const fname=lowOnly?`ER_Stock_ใกล้หมด_${now.toISOString().slice(0,10)}.xlsx`:`ER_Stock_รายงาน_${now.toISOString().slice(0,10)}.xlsx`;
+  XLSX.writeFile(wb,fname);
 }
 function exportExcelLow(){exportExcel(true);}
+
+function exportExcelByCat(cat){
+  if(!dbData.length)return alert('ยังไม่มีข้อมูล');
+  const now=new Date();
+  const dateStr=now.toLocaleDateString('th-TH',{year:'numeric',month:'long',day:'numeric'});
+  const cItems=dbData.filter(i=>i.category===cat);
+  if(!cItems.length)return alert('ไม่มีข้อมูล');
+  const cOk=cItems.filter(i=>getStockClass(i)==='ok').length;
+  const cDanger=cItems.filter(i=>getStockClass(i)==='danger').length;
+  const cWarn=cItems.filter(i=>getStockClass(i)==='warn').length;
+  const cLow=cItems.filter(i=>getStockClass(i)==='low').length;
+  const cRows=[
+    [`รายงานวัสดุคงคลัง — ${cat}`,'','','','','',''],
+    [`วันที่พิมพ์: ${dateStr} | ${cItems.length} รายการ`,'','','','','',''],
+    ['','','','','','',''],
+    ['รหัส','ชื่อรายการ','หน่วย','Max','คงเหลือ','สถานะ','%']
+  ];
+  cItems.forEach(i=>{
+    const sc=getStockClass(i);const pct=i.max>0?Math.round(i.qty/i.max*100):0;
+    cRows.push([i.code||i.seq,i.name,i.unit,i.max,i.qty,getStockLabel(sc),pct+'%']);
+  });
+  cRows.push(['','','','','','','']);
+  cRows.push([`ปกติ ${cOk} | ใกล้หมด ${cWarn} | น้อยมาก ${cLow} | หมด ${cDanger}`,'','','',`คงเหลือรวม: ${cItems.reduce((s,i)=>s+i.qty,0)}`,'','']);
+  const wb=XLSX.utils.book_new();
+  const ws=XLSX.utils.aoa_to_sheet(cRows);
+  ws['!cols']=[{wch:9},{wch:38},{wch:8},{wch:7},{wch:10},{wch:10},{wch:6}];
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:6}},{s:{r:1,c:0},e:{r:1,c:6}},{s:{r:cRows.length-1,c:0},e:{r:cRows.length-1,c:3}}];
+  applySheetStyle(ws,cItems.length,7);
+  XLSX.utils.book_append_sheet(wb,ws,cat.substring(0,31));
+  XLSX.writeFile(wb,`ER_Stock_${cat}_${now.toISOString().slice(0,10)}.xlsx`);
+}
+
 
 
 // ส่งออก Excel เฉพาะหมวดเดียว
