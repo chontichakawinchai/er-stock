@@ -1156,33 +1156,97 @@ function submitManual(){
 }
 
 // ─── PASTE ───
+function findItemBySeqOrName(seq, nameParts){
+  // 1. หาจาก seq ตรงๆ ก่อน
+  let item = dbData.find(i=>i.seq===seq);
+  if(item) return item;
+  // 2. หาจากชื่อ (fuzzy match — เอาคำหลักจากบรรทัดมาค้น)
+  if(nameParts && nameParts.length > 0){
+    const nameStr = nameParts.join(' ').toLowerCase().trim();
+    // ลองหาชื่อที่ตรงกันมากที่สุด
+    let best = null, bestScore = 0;
+    dbData.forEach(i=>{
+      const iName = i.name.toLowerCase();
+      // นับคำที่ตรงกัน
+      const words = nameStr.split(/\s+/).filter(w=>w.length>2);
+      let score = 0;
+      words.forEach(w=>{ if(iName.includes(w)) score++; });
+      if(score > 0 && score > bestScore){
+        bestScore = score;
+        best = i;
+      }
+    });
+    if(best) return best;
+  }
+  return null;
+}
+
 function parsePaste(){
-  const text=document.getElementById('paste-inp').value.trim();if(!text)return alert('กรุณาวางข้อความก่อน');
+  const text=document.getElementById('paste-inp').value.trim();
+  if(!text)return alert('กรุณาวางข้อความก่อน');
   const lines=text.split('\n').filter(l=>l.trim());
   const parsed=[];
   lines.forEach(line=>{
-    if(/ลำดับ|รายการ|จำนวน|หมาย/i.test(line))return;
+    if(/ลำดับ|รายการ|จำนวน|หมาย/i.test(line)&&!/\d/.test(line))return;
     if(/^[\s\-|=:]+$/.test(line))return;
+    // ดึงตัวเลขทั้งหมดจากบรรทัด
     const nums=(line.match(/\d+/g)||[]).map(Number).filter(n=>n>0);
     if(nums.length<2)return;
-    const seq=nums[0],qty=nums[nums.length-1];
-    if(seq>0&&qty>0&&seq!==qty)parsed.push({seq,qty});
+    const seq=nums[0], qty=nums[nums.length-1];
+    if(seq<=0||qty<=0||seq===qty)return;
+    // ดึงส่วนชื่อ (ข้อความที่ไม่ใช่ตัวเลขและ | * **)
+    const nameParts = line
+      .replace(/\*+/g,'')
+      .replace(/\|/g,' ')
+      .replace(/\d+(\.\d+)?/g,' ')
+      .split(/\s+/)
+      .filter(w=>w.length>2&&!/^[\d\.\-]+$/.test(w));
+    parsed.push({seq, qty, nameParts});
   });
   if(!parsed.length)return alert('ไม่พบรายการ — ตรวจสอบว่ามีเลขลำดับและจำนวน');
+  // จับคู่กับ dbData
+  parsed.forEach(p=>{
+    p.item = findItemBySeqOrName(p.seq, p.nameParts);
+  });
   window._parsed=parsed;
-  let matched=0;
+  let matched=parsed.filter(p=>p.item).length;
   let html=`<div class="prev-wrap"><table class="prev-tbl"><thead><tr><th>#</th><th>ชื่อ</th><th>จำนวน</th><th></th></tr></thead><tbody>`;
-  parsed.forEach(p=>{const item=dbData.find(i=>i.seq===p.seq);if(item)matched++;html+=`<tr><td style="color:var(--text3)">${p.seq}</td><td>${item?item.name:'—'}</td><td style="color:var(--green);font-weight:700">${p.qty}</td><td>${item?'✅':'⚠️'}</td></tr>`;});
-  html+=`</tbody></table></div><div style="font-size:12px;color:var(--text2);margin-bottom:6px">พบ ${parsed.length} | จับคู่ ${matched} | ไม่พบ ${parsed.length-matched}</div>`;
-  const p=document.getElementById('paste-prev');p.innerHTML=html;p.style.display='block';
+  parsed.forEach(p=>{
+    const nameDisplay = p.item ? p.item.name : (p.nameParts.slice(0,3).join(' ')||'—');
+    const matchType = p.item ? (dbData.find(i=>i.seq===p.seq)===p.item ? '✅':'🔍') : '⚠️';
+    html+=`<tr>
+      <td style="color:var(--text3)">${p.seq}</td>
+      <td style="font-size:11px">${nameDisplay}</td>
+      <td style="color:var(--green);font-weight:700">${p.qty}</td>
+      <td title="${matchType==='🔍'?'จับคู่จากชื่อ':''}">${matchType}</td>
+    </tr>`;
+  });
+  html+=`</tbody></table></div>
+  <div style="font-size:12px;color:var(--text2);margin-bottom:6px">
+    พบ ${parsed.length} | ✅ ตรงลำดับ ${parsed.filter(p=>p.item&&dbData.find(i=>i.seq===p.seq)===p.item).length} | 🔍 จากชื่อ ${parsed.filter(p=>p.item&&dbData.find(i=>i.seq===p.seq)!==p.item).length} | ⚠️ ไม่พบ ${parsed.length-matched}
+  </div>`;
+  const el=document.getElementById('paste-prev');el.innerHTML=html;el.style.display='block';
   document.getElementById('btn-apply').style.display='flex';
 }
+
 function applyPaste(){
   const parsed=window._parsed;if(!parsed)return;
   let n=0;
-  parsed.forEach(p=>{const item=dbData.find(i=>i.seq===p.seq);if(item&&p.qty>0){item.qty+=p.qty;addHist(`📥 รับเข้า (Claude): ${item.name}`,`+${p.qty} ${item.unit}`,'pos',item.seq);gasPost({action:'updateQty',sheetId:CONFIG.sheetId,seq:p.seq,type:'receive',qty:p.qty});n++;}});
-  renderList();alert(`✅ บันทึกสำเร็จ ${n} รายการ`);
-  document.getElementById('paste-inp').value='';document.getElementById('paste-prev').style.display='none';document.getElementById('btn-apply').style.display='none';window._parsed=null;
+  parsed.forEach(p=>{
+    const item=p.item;
+    if(item&&p.qty>0){
+      item.qty+=p.qty;
+      addHist(`📥 รับเข้า (Claude): ${item.name}`,`+${p.qty} ${item.unit}`,'pos',item.seq);
+      gasPost({action:'updateQty',sheetId:CONFIG.sheetId,seq:item.seq,type:'receive',qty:p.qty});
+      n++;
+    }
+  });
+  renderList();
+  alert(`✅ บันทึกสำเร็จ ${n} รายการ`);
+  document.getElementById('paste-inp').value='';
+  document.getElementById('paste-prev').style.display='none';
+  document.getElementById('btn-apply').style.display='none';
+  window._parsed=null;
 }
 
 // ─── HISTORY ───
