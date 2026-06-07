@@ -1727,6 +1727,12 @@ function exportExcel(lowOnly=false){
   const thNS='border:1.5px solid #94a3b8;padding:7px 8px;font-size:12pt;background:#1e40af;color:white;font-weight:700;text-align:left;';
   const tdB='border:1.5px solid #94a3b8;padding:5px 7px;font-size:11pt;';
 
+  // สร้างแต่ละ sheet เป็น worksheet ใน workbook เดียว
+  // ใช้ HTML multi-sheet format
+  const SHEET_SEP='<?mso-application progid="Excel.Sheet"?>';
+
+  let sheetsHtml='';
+
   // Sheet รวม
   let allRows='';
   items.forEach((i,n)=>{
@@ -1735,7 +1741,7 @@ function exportExcel(lowOnly=false){
     const rb=n%2===0?'#f8fafc':'#ffffff';
     allRows+=`<tr>
       <td style="${tdB}text-align:center;background:${rb};color:#4338ca;font-weight:700">${i.code||i.seq}</td>
-      <td style="${tdB}text-align:center;background:${rb};color:#4338ca">${i.category||''}</td>
+      <td style="${tdB}text-align:center;background:${rb};color:#6366f1">${i.category||''}</td>
       <td style="${tdB}background:${rb}">${i.name}</td>
       <td style="${tdB}text-align:center;background:${rb}">${i.unit}</td>
       <td style="${tdB}text-align:center;background:${rb}">${i.max}</td>
@@ -1745,48 +1751,72 @@ function exportExcel(lowOnly=false){
     </tr>`;
   });
 
-  // sections แยกหมวด
-  let catSections='';
-  cats.forEach(cat=>{ catSections+=buildCatHtmlTable(cat,items,dateStr); });
+  sheetsHtml+=`<table x:Name="รวมทุกหมวด">
+    <tr><td colspan="8" style="background:#1e3a5f;color:white;padding:10px;font-size:15pt;font-weight:700;text-align:center;border:2px solid #1e3a5f">รายงานวัสดุคงคลัง ห้องฉุกเฉิน (รวมทุกหมวด)</td></tr>
+    <tr><td colspan="8" style="background:#dbeafe;color:#1e40af;padding:5px;text-align:center;border:1.5px solid #93c5fd;font-size:11pt">วันที่พิมพ์: ${dateStr} | ทั้งหมด ${items.length} รายการ</td></tr>
+    <tr><td colspan="8" style="border:none;height:10px"></td></tr>
+    <tr>
+      <th style="${thS}width:9%">รหัส</th><th style="${thS}width:10%">หมวด</th>
+      <th style="${thNS}width:30%">ชื่อรายการ</th><th style="${thS}width:7%">หน่วย</th>
+      <th style="${thS}width:7%">Max</th><th style="${thS}width:10%">คงเหลือ</th>
+      <th style="${thS}width:11%">สถานะ</th><th style="${thS}width:8%">%</th>
+    </tr>
+    ${allRows}
+    <tr style="background:#1e3a5f"><td colspan="8" style="border:1.5px solid #1e3a5f;padding:6px 10px;font-size:11pt;font-weight:700;color:white">รวมทั้งหมด ${items.length} รายการ | คงเหลือรวม ${items.reduce((s,i)=>s+i.qty,0)}</td></tr>
+  </table>`;
 
-  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+  // แยก Sheet ตามหมวด
+  cats.forEach(cat=>{
+    const cItems=items.filter(i=>i.category===cat);
+    if(!cItems.length)return;
+    const cOk=cItems.filter(i=>getStockClass(i)==='ok').length;
+    const cWarn=cItems.filter(i=>getStockClass(i)==='warn').length;
+    const cLow=cItems.filter(i=>getStockClass(i)==='low').length;
+    const cDanger=cItems.filter(i=>getStockClass(i)==='danger').length;
+    let rows='';
+    cItems.forEach((i,n)=>{
+      const sc=getStockClass(i);const st=getStatusStyle(sc);
+      const pct=i.max>0?Math.round(i.qty/i.max*100):0;
+      const rb=n%2===0?'#f8fafc':'#ffffff';
+      rows+=`<tr>
+        <td style="${tdB}text-align:center;background:${rb};color:#4338ca;font-weight:700">${i.code||i.seq}</td>
+        <td style="${tdB}background:${rb}">${i.name}</td>
+        <td style="${tdB}text-align:center;background:${rb}">${i.unit}</td>
+        <td style="${tdB}text-align:center;background:${rb}">${i.max}</td>
+        <td style="${tdB}text-align:center;background:${st.bg};color:${st.color};font-weight:700">${i.qty}</td>
+        <td style="${tdB}text-align:center;background:${st.bg};color:${st.color};font-weight:700">${st.label}</td>
+        <td style="${tdB}text-align:center;background:${rb}">${pct}%</td>
+      </tr>`;
+    });
+    sheetsHtml+=`<br><table x:Name="${cat.substring(0,31)}">
+      <tr><td colspan="7" style="background:#1e40af;color:white;padding:10px;font-size:14pt;font-weight:700;text-align:left;border:2px solid #1e40af">หมวด: ${cat}</td><td style="background:#1e40af;color:#bfdbfe;padding:10px;text-align:right;border:2px solid #1e40af;font-size:11pt">${cItems.length} รายการ</td></tr>
+      <tr><td colspan="8" style="background:#dbeafe;color:#1e40af;padding:5px;text-align:center;border:1.5px solid #93c5fd;font-size:10pt">วันที่พิมพ์: ${dateStr}</td></tr>
+      <tr><td colspan="8" style="border:none;height:8px"></td></tr>
+      <tr>
+        <th style="${thS}width:9%">รหัส</th>
+        <th style="${thNS}width:38%">ชื่อรายการ</th>
+        <th style="${thS}width:8%">หน่วย</th>
+        <th style="${thS}width:8%">Max</th>
+        <th style="${thS}width:11%">คงเหลือ</th>
+        <th style="${thS}width:12%">สถานะ</th>
+        <th style="${thS}width:8%">%</th>
+      </tr>
+      ${rows}
+      <tr style="background:#f1f5f9"><td colspan="7" style="border:1.5px solid #94a3b8;padding:5px 10px;font-size:10pt;color:#374151;font-weight:700">สรุป: ปกติ ${cOk} | ใกล้หมด ${cWarn} | น้อยมาก ${cLow} | หมด ${cDanger} | คงเหลือรวม ${cItems.reduce((s,i)=>s+i.qty,0)}</td></tr>
+    </table>`;
+  });
+
+  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office"
+    xmlns:x="urn:schemas-microsoft-com:office:excel"
+    xmlns="http://www.w3.org/TR/REC-html40">
 <head><meta charset="utf-8">
-<style>
-  body{font-family:'TH Sarabun New','Angsana New',sans-serif;font-size:14pt}
-  table{border-collapse:collapse;width:100%}
-  @page{margin:1.5cm}
-</style>
+<xml><x:ExcelWorkbook><x:ExcelWorksheets>
+  <x:ExcelWorksheet><x:Name>รวมทุกหมวด</x:Name><x:WorksheetOptions><x:Selected/></x:WorksheetOptions></x:ExcelWorksheet>
+  ${cats.map(c=>`<x:ExcelWorksheet><x:Name>${c.substring(0,31)}</x:Name></x:ExcelWorksheet>`).join('')}
+</x:ExcelWorksheets></x:ExcelWorkbook></xml>
+<style>body{font-family:'TH Sarabun New','Angsana New',sans-serif;font-size:14pt}table{border-collapse:collapse;width:100%}@page{margin:1.5cm}</style>
 </head><body>
-<table>
-  <tr>
-    <td colspan="8" style="background:#1e3a5f;color:white;padding:12px;font-size:16pt;font-weight:700;text-align:center;border:2px solid #1e3a5f">
-      รายงานวัสดุคงคลัง ห้องฉุกเฉิน
-    </td>
-  </tr>
-  <tr>
-    <td colspan="8" style="background:#dbeafe;color:#1e40af;padding:6px;font-size:11pt;text-align:center;border:1.5px solid #93c5fd">
-      วันที่พิมพ์: ${dateStr} &nbsp;|&nbsp; ทั้งหมด ${items.length} รายการ
-    </td>
-  </tr>
-  <tr><td colspan="8" style="border:none;height:16px"></td></tr>
-  <tr style="background:#1e40af">
-    <th style="${thS}width:9%">รหัส</th>
-    <th style="${thS}width:10%">หมวด</th>
-    <th style="${thNS}width:32%">ชื่อรายการ</th>
-    <th style="${thS}width:7%">หน่วย</th>
-    <th style="${thS}width:7%">Max</th>
-    <th style="${thS}width:10%">คงเหลือ</th>
-    <th style="${thS}width:11%">สถานะ</th>
-    <th style="${thS}width:8%">%</th>
-  </tr>
-  ${allRows}
-  <tr style="background:#f1f5f9">
-    <td colspan="8" style="border:1.5px solid #94a3b8;padding:6px 10px;font-size:11pt;font-weight:700">
-      รวมทั้งหมด ${items.length} รายการ | คงเหลือรวม ${items.reduce((s,i)=>s+i.qty,0)}
-    </td>
-  </tr>
-  ${catSections}
-</table>
+${sheetsHtml}
 </body></html>`;
 
   const blob=new Blob(['﻿'+html],{type:'application/vnd.ms-excel;charset=utf-8'});
@@ -1796,6 +1826,7 @@ function exportExcel(lowOnly=false){
   a.download=fname;a.click();URL.revokeObjectURL(url);
 }
 function exportExcelLow(){exportExcel(true);}
+
 
 // ส่งออก Excel เฉพาะหมวดเดียว
 function exportExcelByCat(cat){
