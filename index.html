@@ -1116,14 +1116,14 @@ function renderList(){
       <div class="si-info">
         <div class="si-name">${i.name}</div>
         ${catBadge?`<div class="si-cat-row">${catBadge}</div>`:''}
-        <!-- ตัวเลข 0 และ Max -->
-        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:5px;margin-bottom:2px;font-family:var(--mono)">
-          <span style="color:${barColor};font-weight:700">${i.qty} ${i.unit}</span>
-          <span>${i.max} ${i.unit}</span>
-        </div>
         <!-- แถบเรียบ -->
-        <div style="height:8px;background:var(--bg3);border-radius:4px;overflow:hidden">
+        <div style="height:8px;background:var(--bg3);border-radius:4px;overflow:hidden;margin-top:6px;margin-bottom:4px">
           <div style="height:100%;width:${pct}%;background:${barColor};border-radius:4px;transition:width .3s"></div>
+        </div>
+        <!-- ตัวเลขปัจจุบัน / Max -->
+        <div style="display:flex;justify-content:space-between;font-size:11px;font-family:var(--mono)">
+          <span style="color:${barColor};font-weight:700">${i.qty} ${i.unit}</span>
+          <span style="color:var(--text3)">${i.max} ${i.unit}</span>
         </div>
 
       </div>
