@@ -1654,94 +1654,67 @@ function renderReportSummary(){
 }
 
 // ─── EXPORT ───
-// helper: apply border+style to a sheet
-function styleSheet(ws, dataStartRow, totalRows, numCols){
-  const border={style:'thin',color:{rgb:'94A3B8'}};
-  const borderAll={top:border,bottom:border,left:border,right:border};
-  const headerFill={patternType:'solid',fgColor:{rgb:'1E40AF'}};
-  const titleFill={patternType:'solid',fgColor:{rgb:'1E3A5F'}};
-  const subFill={patternType:'solid',fgColor:{rgb:'DBEAFE'}};
-  const sumFill={patternType:'solid',fgColor:{rgb:'F1F5F9'}};
-  const statusColors={
-    'ปกติ':{fg:{rgb:'065F46'},bg:{rgb:'D1FAE5'}},
-    'ใกล้หมด':{fg:{rgb:'7C4A00'},bg:{rgb:'FEF9C3'}},
-    'น้อยมาก':{fg:{rgb:'9A3412'},bg:{rgb:'FFEDD5'}},
-    'หมด':{fg:{rgb:'991B1B'},bg:{rgb:'FEE2E2'}}
+// ─── EXCEL EXPORT (HTML format — รองรับ border+color ทุกเครื่อง) ───
+function getStatusStyle(sc){
+  const map={
+    ok:{color:'#065f46',bg:'#d1fae5',label:'ปกติ'},
+    warn:{color:'#7c4a00',bg:'#fef9c3',label:'ใกล้หมด'},
+    low:{color:'#9a3412',bg:'#ffedd5',label:'น้อยมาก'},
+    danger:{color:'#991b1b',bg:'#fee2e2',label:'หมด'}
   };
-  if(!ws['!ref'])return;
-  const range=XLSX.utils.decode_range(ws['!ref']);
-  for(let R=range.s.r;R<=range.e.r;R++){
-    for(let C=range.s.c;C<=range.e.c;C++){
-      const addr=XLSX.utils.encode_cell({r:R,c:C});
-      if(!ws[addr])ws[addr]={t:'s',v:''};
-      const cell=ws[addr];
-      if(!cell.s)cell.s={};
-      // title row (row 0)
-      if(R===0){
-        cell.s={font:{bold:true,sz:14,color:{rgb:'FFFFFF'}},fill:titleFill,alignment:{horizontal:'left',vertical:'center'}};
-      }
-      // subtitle row (row 1)
-      else if(R===1){
-        cell.s={font:{sz:11,color:{rgb:'1E40AF'}},fill:subFill,alignment:{horizontal:'left'}};
-      }
-      // header row
-      else if(R===dataStartRow-1){
-        cell.s={font:{bold:true,sz:11,color:{rgb:'FFFFFF'}},fill:headerFill,border:borderAll,alignment:{horizontal:'center',vertical:'center',wrapText:true}};
-      }
-      // data rows
-      else if(R>=dataStartRow && R<totalRows){
-        const isEven=(R-dataStartRow)%2===0;
-        const rowFill={patternType:'solid',fgColor:{rgb:isEven?'F8FAFC':'FFFFFF'}};
-        // status column
-        if(C===5 && cell.v){
-          const sc=statusColors[cell.v];
-          if(sc)cell.s={font:{bold:true,sz:11,color:{rgb:sc.fg.rgb}},fill:{patternType:'solid',fgColor:{rgb:sc.bg.rgb}},border:borderAll,alignment:{horizontal:'center'}};
-          else cell.s={fill:rowFill,border:borderAll,alignment:{horizontal:'center'}};
-        } else {
-          const align=C===1?'left':'center';
-          cell.s={font:{sz:11},fill:rowFill,border:borderAll,alignment:{horizontal:align,vertical:'center'}};
-        }
-        // code col bold+color
-        if(C===0)cell.s={font:{bold:true,sz:11,color:{rgb:'4338CA'}},fill:rowFill,border:borderAll,alignment:{horizontal:'center'}};
-      }
-      // summary row
-      else if(R===totalRows){
-        cell.s={font:{bold:true,sz:11},fill:sumFill,border:borderAll};
-      }
-    }
-  }
+  return map[sc]||map.ok;
 }
 
-function buildCatSheet(wb2, cat, items, dateStr){
+function buildCatHtmlTable(cat, items, dateStr){
   const cItems=items.filter(i=>i.category===cat);
-  if(!cItems.length)return;
-  const ok=cItems.filter(i=>getStockClass(i)==='ok').length;
-  const danger=cItems.filter(i=>getStockClass(i)==='danger').length;
-  const cRows=[
-    [`รายงานวัสดุคงคลัง — ${cat}`,'','','','','',''],
-    [`วันที่พิมพ์: ${dateStr}`,'','','','','',''],
-    ['','','','','','',''],
-    ['รหัส','ชื่อรายการ','หน่วย','Max','คงเหลือ','สถานะ','%']
-  ];
-  const dataStart=4; // row index 4 (0-based)
-  cItems.forEach(i=>{
+  if(!cItems.length)return'';
+  const cOk=cItems.filter(i=>getStockClass(i)==='ok').length;
+  const cWarn=cItems.filter(i=>getStockClass(i)==='warn').length;
+  const cLow=cItems.filter(i=>getStockClass(i)==='low').length;
+  const cDanger=cItems.filter(i=>getStockClass(i)==='danger').length;
+
+  const thStyle='border:1.5px solid #94a3b8;padding:7px 8px;font-size:12pt;text-align:center;background:#1e40af;color:white;font-weight:700;';
+  const thNameStyle='border:1.5px solid #94a3b8;padding:7px 8px;font-size:12pt;text-align:left;background:#1e40af;color:white;font-weight:700;';
+  const tdBase='border:1.5px solid #94a3b8;padding:5px 7px;font-size:11pt;';
+
+  let rows='';
+  cItems.forEach((i,n)=>{
     const sc=getStockClass(i);
+    const st=getStatusStyle(sc);
     const pct=i.max>0?Math.round(i.qty/i.max*100):0;
-    cRows.push([i.code||i.seq, i.name, i.unit, i.max, i.qty, getStockLabel(sc), pct+'%']);
+    const rb=n%2===0?'#f8fafc':'#ffffff';
+    rows+=`<tr>
+      <td style="${tdBase}text-align:center;background:${rb};color:#4338ca;font-weight:700">${i.code||i.seq}</td>
+      <td style="${tdBase}text-align:left;background:${rb}">${i.name}</td>
+      <td style="${tdBase}text-align:center;background:${rb}">${i.unit}</td>
+      <td style="${tdBase}text-align:center;background:${rb}">${i.max}</td>
+      <td style="${tdBase}text-align:center;background:${st.bg};color:${st.color};font-weight:700">${i.qty}</td>
+      <td style="${tdBase}text-align:center;background:${st.bg};color:${st.color};font-weight:700">${st.label}</td>
+      <td style="${tdBase}text-align:center;background:${rb}">${pct}%</td>
+    </tr>`;
   });
-  cRows.push(['','','','','','','']);
-  cRows.push([`รวม: ${cItems.length} รายการ | ปกติ ${ok} | หมด ${danger}`,'','','',`คงเหลือรวม: ${cItems.reduce((s,i)=>s+i.qty,0)}`,'','']);
-  const cws=XLSX.utils.aoa_to_sheet(cRows);
-  cws['!cols']=[{wch:9},{wch:38},{wch:8},{wch:7},{wch:10},{wch:10},{wch:6}];
-  cws['!rows']=[{hpt:22},{hpt:18},{hpt:6},{hpt:20}];
-  // merge title cells
-  cws['!merges']=[
-    {s:{r:0,c:0},e:{r:0,c:6}},
-    {s:{r:1,c:0},e:{r:1,c:6}},
-    {s:{r:cRows.length-1,c:0},e:{r:cRows.length-1,c:3}}
-  ];
-  styleSheet(cws, dataStart, dataStart+cItems.length, 7);
-  XLSX.utils.book_append_sheet(wb2,cws,cat.substring(0,31));
+
+  return `
+    <tr><td colspan="7" style="padding:0;border:none;height:20px"></td></tr>
+    <tr>
+      <td colspan="5" style="border:1.5px solid #1e3a5f;padding:8px 12px;background:#1e3a5f;color:white;font-size:13pt;font-weight:700">หมวด: ${cat}</td>
+      <td colspan="2" style="border:1.5px solid #1e3a5f;padding:8px 12px;background:#1e3a5f;color:#93c5fd;font-size:11pt;text-align:right">${cItems.length} รายการ</td>
+    </tr>
+    <tr>
+      <th style="${thStyle}width:9%">รหัส</th>
+      <th style="${thNameStyle}width:38%">ชื่อรายการ</th>
+      <th style="${thStyle}width:8%">หน่วย</th>
+      <th style="${thStyle}width:8%">Max</th>
+      <th style="${thStyle}width:11%">คงเหลือ</th>
+      <th style="${thStyle}width:12%">สถานะ</th>
+      <th style="${thStyle}width:8%">%</th>
+    </tr>
+    ${rows}
+    <tr style="background:#f1f5f9">
+      <td colspan="7" style="border:1.5px solid #94a3b8;padding:5px 10px;font-size:10pt;color:#374151">
+        <b>สรุป ${cat}:</b> ปกติ ${cOk} | ใกล้หมด ${cWarn} | น้อยมาก ${cLow} | หมด ${cDanger} | คงเหลือรวม ${cItems.reduce((s,i)=>s+i.qty,0)}
+      </td>
+    </tr>`;
 }
 
 function exportExcel(lowOnly=false){
@@ -1749,30 +1722,104 @@ function exportExcel(lowOnly=false){
   const now=new Date();
   const dateStr=now.toLocaleDateString('th-TH',{year:'numeric',month:'long',day:'numeric'});
   const items=lowOnly?dbData.filter(i=>getStockClass(i)!=='ok'):dbData;
-  const wb2=XLSX.utils.book_new();
+  const cats=getCategories();
+  const thS='border:1.5px solid #94a3b8;padding:7px 8px;font-size:12pt;background:#1e40af;color:white;font-weight:700;text-align:center;';
+  const thNS='border:1.5px solid #94a3b8;padding:7px 8px;font-size:12pt;background:#1e40af;color:white;font-weight:700;text-align:left;';
+  const tdB='border:1.5px solid #94a3b8;padding:5px 7px;font-size:11pt;';
+
   // Sheet รวม
-  const rows=[
-    ['รายงานวัสดุคงคลัง ห้องฉุกเฉิน (รวมทุกหมวด)','','','','','','',''],
-    [`วันที่พิมพ์: ${dateStr}`,'','','','','','',''],
-    ['','','','','','','',''],
-    ['รหัส','หมวด','ชื่อรายการ','หน่วย','Max','คงเหลือ','สถานะ','%']
-  ];
-  items.forEach(i=>{
-    const sc=getStockClass(i);const pct=i.max>0?Math.round(i.qty/i.max*100):0;
-    rows.push([i.code||i.seq, i.category||'', i.name, i.unit, i.max, i.qty, getStockLabel(sc), pct+'%']);
+  let allRows='';
+  items.forEach((i,n)=>{
+    const sc=getStockClass(i);const st=getStatusStyle(sc);
+    const pct=i.max>0?Math.round(i.qty/i.max*100):0;
+    const rb=n%2===0?'#f8fafc':'#ffffff';
+    allRows+=`<tr>
+      <td style="${tdB}text-align:center;background:${rb};color:#4338ca;font-weight:700">${i.code||i.seq}</td>
+      <td style="${tdB}text-align:center;background:${rb};color:#4338ca">${i.category||''}</td>
+      <td style="${tdB}background:${rb}">${i.name}</td>
+      <td style="${tdB}text-align:center;background:${rb}">${i.unit}</td>
+      <td style="${tdB}text-align:center;background:${rb}">${i.max}</td>
+      <td style="${tdB}text-align:center;background:${st.bg};color:${st.color};font-weight:700">${i.qty}</td>
+      <td style="${tdB}text-align:center;background:${st.bg};color:${st.color};font-weight:700">${st.label}</td>
+      <td style="${tdB}text-align:center;background:${rb}">${pct}%</td>
+    </tr>`;
   });
-  rows.push(['','','','','','','','']);
-  rows.push([`รวมทั้งหมด: ${items.length} รายการ`,'','','','',`คงเหลือรวม: ${items.reduce((s,i)=>s+i.qty,0)}`,'','']);
-  const ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{wch:9},{wch:14},{wch:36},{wch:8},{wch:7},{wch:10},{wch:10},{wch:6}];
-  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:7}},{s:{r:1,c:0},e:{r:1,c:7}}];
-  styleSheet(ws,4,4+items.length,8);
-  XLSX.utils.book_append_sheet(wb2,ws,'รวมทุกหมวด');
-  getCategories().forEach(cat=>buildCatSheet(wb2,cat,items,dateStr));
-  const fname=lowOnly?`ER_Stock_ใกล้หมด_${now.toISOString().slice(0,10)}.xlsx`:`ER_Stock_รายงาน_${now.toISOString().slice(0,10)}.xlsx`;
-  XLSX.writeFile(wb2,fname);
+
+  // sections แยกหมวด
+  let catSections='';
+  cats.forEach(cat=>{ catSections+=buildCatHtmlTable(cat,items,dateStr); });
+
+  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<style>
+  body{font-family:'TH Sarabun New','Angsana New',sans-serif;font-size:14pt}
+  table{border-collapse:collapse;width:100%}
+  @page{margin:1.5cm}
+</style>
+</head><body>
+<table>
+  <tr>
+    <td colspan="8" style="background:#1e3a5f;color:white;padding:12px;font-size:16pt;font-weight:700;text-align:center;border:2px solid #1e3a5f">
+      รายงานวัสดุคงคลัง ห้องฉุกเฉิน
+    </td>
+  </tr>
+  <tr>
+    <td colspan="8" style="background:#dbeafe;color:#1e40af;padding:6px;font-size:11pt;text-align:center;border:1.5px solid #93c5fd">
+      วันที่พิมพ์: ${dateStr} &nbsp;|&nbsp; ทั้งหมด ${items.length} รายการ
+    </td>
+  </tr>
+  <tr><td colspan="8" style="border:none;height:16px"></td></tr>
+  <tr style="background:#1e40af">
+    <th style="${thS}width:9%">รหัส</th>
+    <th style="${thS}width:10%">หมวด</th>
+    <th style="${thNS}width:32%">ชื่อรายการ</th>
+    <th style="${thS}width:7%">หน่วย</th>
+    <th style="${thS}width:7%">Max</th>
+    <th style="${thS}width:10%">คงเหลือ</th>
+    <th style="${thS}width:11%">สถานะ</th>
+    <th style="${thS}width:8%">%</th>
+  </tr>
+  ${allRows}
+  <tr style="background:#f1f5f9">
+    <td colspan="8" style="border:1.5px solid #94a3b8;padding:6px 10px;font-size:11pt;font-weight:700">
+      รวมทั้งหมด ${items.length} รายการ | คงเหลือรวม ${items.reduce((s,i)=>s+i.qty,0)}
+    </td>
+  </tr>
+  ${catSections}
+</table>
+</body></html>`;
+
+  const blob=new Blob(['﻿'+html],{type:'application/vnd.ms-excel;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;
+  const fname=lowOnly?`ER_Stock_ใกล้หมด_${now.toISOString().slice(0,10)}.xls`:`ER_Stock_รายงาน_${now.toISOString().slice(0,10)}.xls`;
+  a.download=fname;a.click();URL.revokeObjectURL(url);
 }
 function exportExcelLow(){exportExcel(true);}
+
+// ส่งออก Excel เฉพาะหมวดเดียว
+function exportExcelByCat(cat){
+  if(!dbData.length)return alert('ยังไม่มีข้อมูล');
+  const now=new Date();
+  const dateStr=now.toLocaleDateString('th-TH',{year:'numeric',month:'long',day:'numeric'});
+  const thS='border:1.5px solid #94a3b8;padding:7px 8px;font-size:12pt;background:#1e40af;color:white;font-weight:700;text-align:center;';
+  const section=buildCatHtmlTable(cat,dbData,dateStr);
+  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<style>body{font-family:'TH Sarabun New','Angsana New',sans-serif}table{border-collapse:collapse;width:100%}@page{margin:1.5cm}</style>
+</head><body>
+<table>
+  <tr><td colspan="7" style="background:#1e3a5f;color:white;padding:12px;font-size:15pt;font-weight:700;text-align:center;border:2px solid #1e3a5f">รายงานวัสดุคงคลัง — ${cat}</td></tr>
+  <tr><td colspan="7" style="background:#dbeafe;color:#1e40af;padding:5px;text-align:center;border:1.5px solid #93c5fd">วันที่พิมพ์: ${dateStr}</td></tr>
+  ${section}
+</table></body></html>`;
+  const blob=new Blob(['﻿'+html],{type:'application/vnd.ms-excel;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;
+  a.download=`ER_Stock_${cat}_${now.toISOString().slice(0,10)}.xls`;
+  a.click();URL.revokeObjectURL(url);
+}
+
 
 // ส่งออก Excel เฉพาะหมวดเดียว
 function exportExcelByCat(cat){
