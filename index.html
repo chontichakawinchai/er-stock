@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
 <style>
 :root {
   --bg: #f0f4f8;
@@ -435,7 +436,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
           <div class="card-header"><h3>⌨️ พิมพ์รหัส/ชื่อเอง</h3></div>
           <div class="card-body">
             <div class="inp-group inp-rel">
-              <input class="inp" type="text" id="scan-text" placeholder="ลำดับที่หรือชื่อสินค้า..." oninput="scanSearch(this.value)">
+              <input class="inp" type="text" id="scan-text" placeholder="รหัส M001 หรือชื่อวัสดุ..." oninput="scanSearch(this.value)">
               <div class="inp-dd" id="scan-dd"></div>
             </div>
             <button class="btn btn-primary btn-full" onclick="scanLookup()">ค้นหา →</button>
@@ -867,22 +868,49 @@ function loadCatCodesFromGAS(){
 }
 
 function saveAllToGAS(){
-  const items=dbData.map(function(i){
-    return {
-      code: i.code||String(i.seq),
-      name: i.name,
-      category: i.category||'',
-      qty: i.qty,
-      unit: i.unit,
-      min: i.min,
-      max: i.max,
-      status: ''
-    };
-  });
+  // โหลดรหัสเดิมจาก GAS ก่อน แล้วค่อย save (ไม่ทับรหัสที่ตั้งไว้)
   fetch(CONFIG.gasUrl,{
     method:'POST',
-    body:JSON.stringify({action:'saveAll',sheetId:CONFIG.sheetId,items:items})
-  }).catch(()=>{});
+    body:JSON.stringify({action:'read',sheetId:CONFIG.sheetId})
+  })
+  .then(r=>r.json())
+  .then(existing=>{
+    // สร้าง map รหัสเดิม: name+category → code
+    const codeMap={};
+    if(existing.status==='SUCCESS'&&existing.data){
+      existing.data.forEach(function(d){
+        if(d.code&&d.name){
+          const key=(d.name+'|'+d.category).toLowerCase();
+          codeMap[key]=d.code;
+        }
+      });
+    }
+    const items=dbData.map(function(i){
+      const key=(i.name+'|'+(i.category||'')).toLowerCase();
+      const existingCode=codeMap[key];
+      return {
+        code: existingCode||i.code||String(i.seq),
+        name: i.name,
+        category: i.category||'',
+        qty: i.qty,
+        unit: i.unit,
+        min: i.min,
+        max: i.max,
+        status: ''
+      };
+    });
+    return fetch(CONFIG.gasUrl,{
+      method:'POST',
+      body:JSON.stringify({action:'saveAll',sheetId:CONFIG.sheetId,items:items})
+    });
+  })
+  .catch(()=>{
+    // fallback: save ตรงๆ
+    const items=dbData.map(function(i){
+      return {code:i.code||String(i.seq),name:i.name,category:i.category||'',qty:i.qty,unit:i.unit,min:i.min,max:i.max,status:''};
+    });
+    fetch(CONFIG.gasUrl,{method:'POST',body:JSON.stringify({action:'saveAll',sheetId:CONFIG.sheetId,items:items})}).catch(()=>{});
+  });
 }
 
 function gasPost(b){
@@ -1184,17 +1212,47 @@ function renderHistoryOverview(){
 // ─── SCAN ───
 async function startScan(){
   try{
-    scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280}}});
-    const v=document.getElementById('sv');v.srcObject=scanStream;v.style.display='block';
-    document.getElementById('sph').style.display='none';document.getElementById('sl').style.display='block';
-    document.getElementById('btn-cam-on').style.display='none';document.getElementById('btn-cam-off').style.display='flex';
-    if('BarcodeDetector' in window){
-      const det=new BarcodeDetector({formats:['qr_code','code_128','ean_13','ean_8','code_39']});
-      scanIv=setInterval(async()=>{try{const bc=await det.detect(v);if(bc.length){stopScan();handleScan(bc[0].rawValue);}}catch(e){}},300);
+    const v=document.getElementById('sv');
+    document.getElementById('sph').style.display='none';
+    document.getElementById('sl').style.display='block';
+    document.getElementById('btn-cam-on').style.display='none';
+    document.getElementById('btn-cam-off').style.display='flex';
+
+    // ใช้ ZXing — รองรับ iOS, Android, Desktop
+    if(window.ZXing){
+      const hints=new Map();
+      const formats=[
+        ZXing.BarcodeFormat.QR_CODE,
+        ZXing.BarcodeFormat.CODE_128,
+        ZXing.BarcodeFormat.CODE_39,
+        ZXing.BarcodeFormat.EAN_13
+      ];
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+      const codeReader=new ZXing.BrowserMultiFormatReader(hints);
+      window._zxingReader=codeReader;
+      codeReader.decodeFromVideoDevice(null,'sv',function(result,err){
+        if(result){
+          window._zxingReader=null;
+          codeReader.reset();
+          stopScan();
+          handleScan(result.getText());
+        }
+      });
+      v.style.display='block';
+    } else {
+      // fallback: BarcodeDetector
+      scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280}}});
+      v.srcObject=scanStream;v.style.display='block';
+      if('BarcodeDetector' in window){
+        const det=new BarcodeDetector({formats:['qr_code','code_128','ean_13']});
+        scanIv=setInterval(async()=>{try{const bc=await det.detect(v);if(bc.length){stopScan();handleScan(bc[0].rawValue);}}catch(e){}},300);
+      }
     }
   }catch(err){alert('เปิดกล้องไม่ได้: '+err.message+'\nลองใช้ช่องพิมพ์รหัสด้านล่าง');}
 }
 function stopScan(){
+  // หยุด ZXing
+  if(window._zxingReader){try{window._zxingReader.reset();}catch(e){}window._zxingReader=null;}
   if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;}
   if(scanIv){clearInterval(scanIv);scanIv=null;}
   const v=document.getElementById('sv');if(v)v.style.display='none';
@@ -1244,12 +1302,41 @@ function resetScan(){curScanItem=null;document.getElementById('scan-res').style.
 function scanSearch(val){
   const dd=document.getElementById('scan-dd');
   if(!val.trim()){dd.style.display='none';return;}
-  const m=dbData.filter(i=>i.name.toLowerCase().includes(val.toLowerCase())||String(i.seq)===val.trim());
+  const v=val.toLowerCase().trim();
+  const m=dbData.filter(i=>
+    i.name.toLowerCase().includes(v)||
+    String(i.seq)===v||
+    (i.code&&i.code.toLowerCase()===v)
+  );
   if(!m.length){dd.style.display='none';return;}
-  dd.innerHTML=m.map(i=>`<div class="inp-ddi" onclick="pickScan(${i.seq})">#${i.seq} ${i.name} <span style="color:var(--text3);font-size:11px">(${i.qty} ${i.unit})</span></div>`).join('');dd.style.display='block';
+  dd.innerHTML=m.map(i=>`<div class="inp-ddi" onclick="pickScanByCode('${i.code||i.seq}')">
+    <span style="color:var(--indigo);font-weight:700;font-family:var(--mono)">${i.code||'#'+i.seq}</span>
+    ${i.name}
+    <span style="color:var(--text3);font-size:11px">(${i.qty} ${i.unit})</span>
+  </div>`).join('');
+  dd.style.display='block';
+}
+function pickScanByCode(code){
+  document.getElementById('scan-dd').style.display='none';
+  document.getElementById('scan-text').value='';
+  const item=dbData.find(i=>String(i.code)===String(code)||String(i.seq)===String(code));
+  if(item)showScanResult(item);
 }
 function pickScan(seq){document.getElementById('scan-dd').style.display='none';document.getElementById('scan-text').value='';const item=dbData.find(i=>i.seq===seq);if(item)showScanResult(item);}
-function scanLookup(){const val=document.getElementById('scan-text').value.trim();if(!val)return;const item=dbData.find(i=>String(i.seq)===val||i.name.toLowerCase().includes(val.toLowerCase()));if(!item)return alert('ไม่พบรายการ');document.getElementById('scan-text').value='';document.getElementById('scan-dd').style.display='none';showScanResult(item);}
+function scanLookup(){
+  const val=document.getElementById('scan-text').value.trim();
+  if(!val)return;
+  // ค้นหาจากรหัสก่อน (M001, G001)
+  const byCode=dbData.find(i=>i.code&&i.code.toUpperCase()===val.toUpperCase());
+  if(byCode){document.getElementById('scan-text').value='';document.getElementById('scan-dd').style.display='none';showScanResult(byCode);return;}
+  // ค้นหาจากชื่อ
+  const byName=dbData.find(i=>i.name.toLowerCase().includes(val.toLowerCase()));
+  if(byName){document.getElementById('scan-text').value='';document.getElementById('scan-dd').style.display='none';showScanResult(byName);return;}
+  // ค้นหาจาก seq
+  const bySeq=dbData.find(i=>String(i.seq)===val);
+  if(bySeq){document.getElementById('scan-text').value='';document.getElementById('scan-dd').style.display='none';showScanResult(bySeq);return;}
+  alert('ไม่พบรายการ "'+val+'"');
+}
 
 // ─── IMPORT EXCEL (ใหม่: รองรับหลาย Sheet) ───
 function importExcel(input){
