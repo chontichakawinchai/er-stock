@@ -813,13 +813,97 @@ function goHome(){goPage('home');}
 
 // ─── SYNC ───
 function setStatus(t){document.getElementById('sync-dot').className='sync-dot '+t;}
+
 function syncData(){
   setStatus('loading');
-  fetch(CONFIG.gasUrl,{method:'POST',mode:'no-cors',body:JSON.stringify({action:'read',sheetId:CONFIG.sheetId})})
-    .then(()=>{setStatus('ok');renderList();})
-    .catch(()=>setStatus('err'));
+  fetch(CONFIG.gasUrl,{
+    method:'POST',
+    body:JSON.stringify({action:'read',sheetId:CONFIG.sheetId})
+  })
+  .then(r=>r.json())
+  .then(data=>{
+    if(data.status==='SUCCESS'&&data.data){
+      // แปลงข้อมูลจาก GAS format → app format
+      dbData=data.data.map(function(item,idx){
+        return {
+          seq: idx+1,
+          code: item.code||String(idx+1),
+          name: item.name||'',
+          category: item.category||'',
+          qty: Number(item.qty)||0,
+          unit: item.unit||'ชิ้น',
+          min: Number(item.min)||0,
+          max: Number(item.max)||100
+        };
+      });
+      setStatus('ok');
+      renderList();
+      renderCatChips();
+      // โหลด catCodes จาก GAS ด้วย
+      loadCatCodesFromGAS();
+    } else {
+      setStatus('err');
+    }
+  })
+  .catch(()=>setStatus('err'));
 }
-function gasPost(b){fetch(CONFIG.gasUrl,{method:'POST',mode:'no-cors',body:JSON.stringify(b)});}
+
+function loadCatCodesFromGAS(){
+  fetch(CONFIG.gasUrl,{
+    method:'POST',
+    body:JSON.stringify({action:'readCatCodes',sheetId:CONFIG.sheetId})
+  })
+  .then(r=>r.json())
+  .then(data=>{
+    if(data.status==='SUCCESS'&&data.data){
+      catCodes=data.data;
+      renderCatCodeList();
+    }
+  })
+  .catch(()=>{});
+}
+
+function saveAllToGAS(){
+  const items=dbData.map(function(i){
+    return {
+      code: i.code||String(i.seq),
+      name: i.name,
+      category: i.category||'',
+      qty: i.qty,
+      unit: i.unit,
+      min: i.min,
+      max: i.max,
+      status: ''
+    };
+  });
+  fetch(CONFIG.gasUrl,{
+    method:'POST',
+    body:JSON.stringify({action:'saveAll',sheetId:CONFIG.sheetId,items:items})
+  }).catch(()=>{});
+}
+
+function gasPost(b){
+  // แปลง action เก่า → ใหม่
+  if(b.action==='updateQty'){
+    const item=dbData.find(i=>i.seq===b.seq);
+    if(item){
+      fetch(CONFIG.gasUrl,{
+        method:'POST',
+        body:JSON.stringify({action:'updateQty',sheetId:CONFIG.sheetId,code:item.code||String(item.seq),qty:b.qty,type:b.type})
+      }).catch(()=>{});
+    }
+  } else if(b.action==='delete'){
+    const item=dbData.find(i=>i.seq===b.seq);
+    if(item){
+      fetch(CONFIG.gasUrl,{
+        method:'POST',
+        body:JSON.stringify({action:'delete',sheetId:CONFIG.sheetId,code:item.code||String(item.seq)})
+      }).catch(()=>{});
+    }
+  } else if(b.action==='add'){
+    saveAllToGAS();
+  }
+}
 
 function saveSetup(){
   const url=document.getElementById('gas-url-input').value.trim();
@@ -946,8 +1030,12 @@ function renderCatCodeList(){
 
 function setCatCode(cat,code){
   catCodes[cat]=code;
-  // save to localStorage
   localStorage.setItem('er_cat_codes',JSON.stringify(catCodes));
+  // sync catCodes ขึ้น GAS ด้วย
+  fetch(CONFIG.gasUrl,{
+    method:'POST',
+    body:JSON.stringify({action:'saveCatCodes',sheetId:CONFIG.sheetId,catCodes:catCodes})
+  }).catch(()=>{});
   renderCatCodeList();
 }
 
@@ -1347,7 +1435,9 @@ function confirmImport(){
     }
   });
   renderList();renderCatChips();
-  alert(`✅ นำเข้าสำเร็จ!\n📂 ${selected.length} หมวด\n✨ เพิ่มใหม่ ${added} รายการ\n🔄 อัปเดต ${updated} รายการ`);
+  // sync ขึ้น Google Sheet
+  saveAllToGAS();
+  alert(`✅ นำเข้าสำเร็จ!\n📂 ${selected.length} หมวด\n✨ เพิ่มใหม่ ${added} รายการ\n🔄 อัปเดต ${updated} รายการ\n☁️ กำลัง sync ขึ้น Google Sheet...`);
   document.getElementById('import-prev').style.display='none';
   window._impSheets=null;
   goPage('stock');
