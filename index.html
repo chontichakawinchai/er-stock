@@ -133,8 +133,9 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
 /* STOCK ITEMS */
 .stock-item { background: var(--bg2); border: 1.5px solid var(--border); border-radius: var(--r); padding: 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 12px; cursor: pointer; transition: all .15s; box-shadow: var(--shadow); }
 .stock-item:active { transform: scale(.99); background: var(--bg3); }
-.stock-item.danger { border-color: rgba(239,68,68,.4); background: rgba(239,68,68,.03); }
+.stock-item.danger { border-color: rgba(239,68,68,.6); background: rgba(239,68,68,.08); }
 .stock-item.warn { border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.03); }
+.stock-item.ok { border-color: rgba(16,185,129,.3); background: rgba(16,185,129,.02); }
 .si-num { width: 30px; height: 30px; background: var(--bg3); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 11px; color: var(--text3); font-weight: 600; flex-shrink: 0; }
 .si-info { flex: 1; min-width: 0; }
 .si-name { font-size: 14px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1105,17 +1106,39 @@ function renderList(){
     const sc=getStockClass(i);
     const pct=Math.min(100,(i.qty/Math.max(i.max,1))*100);
     const catBadge=i.category?`<span class="si-cat">${i.category}</span>`:'';
-    return `<div class="stock-item ${sc==='low'?'warn':sc}" onclick="openSheet(${i.seq})">
-      <div class="si-num">${i.seq}</div>
+    const need=Math.max(0,i.max-i.qty);
+    const scClass=sc==='low'?'warn':sc;
+    const bgColor=sc==='danger'?'rgba(239,68,68,.08)':sc==='low'?'rgba(249,115,22,.06)':sc==='warn'?'rgba(245,158,11,.05)':'rgba(16,185,129,.03)';
+    const borderColor=sc==='danger'?'rgba(239,68,68,.5)':sc==='low'?'rgba(249,115,22,.4)':sc==='warn'?'rgba(245,158,11,.35)':'rgba(16,185,129,.3)';
+    // แถบแบตเตอรี่ — แบ่ง 10 ช่อง
+    const bars=10;
+    const filledBars=Math.round(pct/10);
+    const barColor=sc==='danger'?'var(--red)':sc==='low'?'#f97316':sc==='warn'?'#eab308':'var(--green)';
+    let batteryBars='';
+    for(let b=0;b<bars;b++){
+      const filled=b<filledBars;
+      batteryBars+=`<div style="flex:1;height:10px;border-radius:2px;background:${filled?barColor:'var(--bg3)'};border:1px solid ${filled?barColor:'var(--border)'}"></div>`;
+    }
+    return `<div class="stock-item" style="border-color:${borderColor};background:${bgColor}" onclick="openSheet(${i.seq})">
+      <div class="si-num" style="color:${sc==='danger'?'var(--red)':sc==='low'?'#ea580c':sc==='warn'?'#ca8a04':'var(--text3)'}">${i.code||i.seq}</div>
       <div class="si-info">
         <div class="si-name">${i.name}</div>
         ${catBadge?`<div class="si-cat-row">${catBadge}</div>`:''}
-        <div class="si-bar-row">
-          <div class="si-bar"><div class="si-bar-f ${sc}" style="width:${pct}%"></div></div>
-          <div class="si-qty ${sc}">${i.qty}<span style="font-size:10px;color:var(--text3);margin-left:2px">${i.unit}</span></div>
+        <!-- แถบแบตเตอรี่ -->
+        <div style="display:flex;gap:2px;margin:5px 0 3px">
+          ${batteryBars}
+          <div style="font-family:var(--mono);font-size:11px;font-weight:700;color:${barColor};margin-left:6px;white-space:nowrap">${pct}%</div>
+        </div>
+        <!-- จำนวน -->
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <div style="font-size:11px;color:var(--text2)">
+            คงเหลือ <b style="color:${barColor};font-family:var(--mono)">${i.qty}</b>
+            <span style="color:var(--text3)">/ ${i.max} ${i.unit}</span>
+          </div>
+          ${need>0?`<div style="font-size:10px;color:var(--text3)">ต้องเติม <b style="color:${sc==='danger'?'var(--red)':'var(--orange)'}">${need}</b></div>`:''}
         </div>
       </div>
-      <span class="si-tag ${sc}">${getStockLabel(sc)}</span>
+      <span class="si-tag ${scClass}" style="align-self:flex-start">${getStockLabel(sc)}</span>
     </div>`;
   }).join('');
 }
@@ -1225,30 +1248,47 @@ function parsePaste(){
     p.item = findItemBySeqOrName(p.seq, p.nameParts, p.fullLine);
   });
   window._parsed=parsed;
-  let matched=parsed.filter(p=>p.item).length;
-  let html=`<div class="prev-wrap"><table class="prev-tbl"><thead><tr><th>#</th><th>ชื่อ</th><th>จำนวน</th><th></th></tr></thead><tbody>`;
-  parsed.forEach(p=>{
-    const nameDisplay = p.item ? p.item.name : (p.nameParts.slice(0,3).join(' ')||'—');
-    const matchType = p.item ? (dbData.find(i=>i.seq===p.seq)===p.item ? '✅':'🔍') : '⚠️';
-    html+=`<tr>
-      <td style="color:var(--text3)">${p.seq}</td>
+  renderPastePreview();
+  document.getElementById('btn-apply').style.display='flex';
+}
+
+function renderPastePreview(){
+  const parsed=window._parsed;if(!parsed)return;
+  const matched=parsed.filter(p=>p.item&&!p.deleted).length;
+  const total=parsed.filter(p=>!p.deleted).length;
+  let html=`<div class="prev-wrap"><table class="prev-tbl">
+    <thead><tr><th>#</th><th>ชื่อในคลัง</th><th>จำนวน</th><th></th><th></th></tr></thead><tbody>`;
+  parsed.forEach((p,idx)=>{
+    if(p.deleted)return;
+    const nameDisplay=p.item?p.item.name:(p.nameParts.slice(0,3).join(' ')||'—');
+    const matchType=p.item?(dbData.find(i=>i.seq===p.seq)===p.item?'✅':'🔍'):'⚠️';
+    const rowStyle=p.item?'':`style="opacity:0.5"`;
+    html+=`<tr ${rowStyle}>
+      <td style="color:var(--text3);font-size:11px">${p.seq}</td>
       <td style="font-size:11px">${nameDisplay}</td>
       <td style="color:var(--green);font-weight:700">${p.qty}</td>
       <td title="${matchType==='🔍'?'จับคู่จากชื่อ':''}">${matchType}</td>
+      <td><button onclick="removePasteRow(${idx})" style="background:var(--red-light);border:none;border-radius:6px;color:var(--red);padding:3px 8px;cursor:pointer;font-size:12px">✕</button></td>
     </tr>`;
   });
   html+=`</tbody></table></div>
   <div style="font-size:12px;color:var(--text2);margin-bottom:6px">
-    พบ ${parsed.length} | ✅ ตรงลำดับ ${parsed.filter(p=>p.item&&dbData.find(i=>i.seq===p.seq)===p.item).length} | 🔍 จากชื่อ ${parsed.filter(p=>p.item&&dbData.find(i=>i.seq===p.seq)!==p.item).length} | ⚠️ ไม่พบ ${parsed.length-matched}
+    คงเหลือ ${total} รายการ | ✅ ${parsed.filter(p=>!p.deleted&&p.item&&dbData.find(i=>i.seq===p.seq)===p.item).length} | 🔍 ${parsed.filter(p=>!p.deleted&&p.item&&dbData.find(i=>i.seq===p.seq)!==p.item).length} | ⚠️ ${parsed.filter(p=>!p.deleted&&!p.item).length}
   </div>`;
   const el=document.getElementById('paste-prev');el.innerHTML=html;el.style.display='block';
-  document.getElementById('btn-apply').style.display='flex';
+}
+
+function removePasteRow(idx){
+  if(!window._parsed)return;
+  window._parsed[idx].deleted=true;
+  renderPastePreview();
 }
 
 function applyPaste(){
   const parsed=window._parsed;if(!parsed)return;
   let n=0;
   parsed.forEach(p=>{
+    if(p.deleted)return; // ข้ามรายการที่ลบแล้ว
     const item=p.item;
     if(item&&p.qty>0){
       item.qty+=p.qty;
