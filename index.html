@@ -1110,33 +1110,22 @@ function renderList(){
     const scClass=sc==='low'?'warn':sc;
     const bgColor=sc==='danger'?'rgba(239,68,68,.08)':sc==='low'?'rgba(249,115,22,.06)':sc==='warn'?'rgba(245,158,11,.05)':'rgba(16,185,129,.03)';
     const borderColor=sc==='danger'?'rgba(239,68,68,.5)':sc==='low'?'rgba(249,115,22,.4)':sc==='warn'?'rgba(245,158,11,.35)':'rgba(16,185,129,.3)';
-    // แถบแบตเตอรี่ — แบ่ง 10 ช่อง
-    const bars=10;
-    const filledBars=Math.round(pct/10);
     const barColor=sc==='danger'?'var(--red)':sc==='low'?'#f97316':sc==='warn'?'#eab308':'var(--green)';
-    let batteryBars='';
-    for(let b=0;b<bars;b++){
-      const filled=b<filledBars;
-      batteryBars+=`<div style="flex:1;height:10px;border-radius:2px;background:${filled?barColor:'var(--bg3)'};border:1px solid ${filled?barColor:'var(--border)'}"></div>`;
-    }
     return `<div class="stock-item" style="border-color:${borderColor};background:${bgColor}" onclick="openSheet(${i.seq})">
       <div class="si-num" style="color:${sc==='danger'?'var(--red)':sc==='low'?'#ea580c':sc==='warn'?'#ca8a04':'var(--text3)'}">${i.code||i.seq}</div>
       <div class="si-info">
         <div class="si-name">${i.name}</div>
         ${catBadge?`<div class="si-cat-row">${catBadge}</div>`:''}
-        <!-- แถบแบตเตอรี่ -->
-        <div style="display:flex;gap:2px;margin:5px 0 3px">
-          ${batteryBars}
-          <div style="font-family:var(--mono);font-size:11px;font-weight:700;color:${barColor};margin-left:6px;white-space:nowrap">${pct}%</div>
+        <!-- ตัวเลข 0 และ Max -->
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:5px;margin-bottom:2px;font-family:var(--mono)">
+          <span style="color:${barColor};font-weight:700">${i.qty} ${i.unit}</span>
+          <span>${i.max} ${i.unit}</span>
         </div>
-        <!-- จำนวน -->
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-          <div style="font-size:11px;color:var(--text2)">
-            คงเหลือ <b style="color:${barColor};font-family:var(--mono)">${i.qty}</b>
-            <span style="color:var(--text3)">/ ${i.max} ${i.unit}</span>
-          </div>
-          ${need>0?`<div style="font-size:10px;color:var(--text3)">ต้องเติม <b style="color:${sc==='danger'?'var(--red)':'var(--orange)'}">${need}</b></div>`:''}
+        <!-- แถบเรียบ -->
+        <div style="height:8px;background:var(--bg3);border-radius:4px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${barColor};border-radius:4px;transition:width .3s"></div>
         </div>
+
       </div>
       <span class="si-tag ${scClass}" style="align-self:flex-start">${getStockLabel(sc)}</span>
     </div>`;
