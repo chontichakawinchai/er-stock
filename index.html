@@ -87,13 +87,14 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
 #p-home .page-content { padding-top: 12px; }
 .home-greeting { font-size: 20px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
 .home-sub { font-size: 13px; color: var(--text2); margin-bottom: 18px; }
-.stat-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-bottom: 20px; }
+.stat-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-bottom: 20px; }
 .stat-card { background: var(--bg2); border-radius: var(--r); padding: 14px 10px; text-align: center; box-shadow: var(--shadow); }
 .stat-card .sv { font-size: 26px; font-weight: 700; font-family: var(--mono); line-height: 1; }
 .stat-card .sl { font-size: 10px; color: var(--text2); margin-top: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
 .stat-ok .sv { color: var(--green); }
 .stat-dan .sv { color: var(--red); }
 .stat-wrn .sv { color: var(--orange); }
+.stat-exp .sv { color: var(--purple); }
 .menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
 .menu-card { background: var(--bg2); border-radius: var(--r2); padding: 20px 16px; cursor: pointer; box-shadow: var(--shadow); transition: all .15s; border: 1.5px solid transparent; display: flex; flex-direction: column; gap: 10px; position: relative; overflow: hidden; }
 .menu-card:active { transform: scale(.97); }
@@ -345,6 +346,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
           <div class="stat-card stat-ok" onclick="showFilterModal('all')" style="cursor:pointer"><div class="sv" id="sum-total">0</div><div class="sl">รายการ</div></div>
           <div class="stat-card stat-dan" onclick="showFilterModal('danger')" style="cursor:pointer"><div class="sv" id="sum-danger">0</div><div class="sl">หมด</div></div>
           <div class="stat-card stat-wrn" onclick="showFilterModal('warn')" style="cursor:pointer"><div class="sv" id="sum-warn">0</div><div class="sl">ใกล้หมด</div></div>
+          <div class="stat-card stat-exp" onclick="showFilterModal('expiry')" style="cursor:pointer"><div class="sv" id="sum-exp">0</div><div class="sl">ใกล้หมดอายุ</div></div>
         </div>
         <button class="quick-scan-btn" onclick="goPage('scan')">
           <span class="qsb-icon">📷</span>
@@ -653,6 +655,10 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
     </div>
     <div id="sh-tag"></div>
   </div>
+  <div id="sh-lots-box" style="display:none;margin-bottom:14px">
+    <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px">📦 ล็อตที่มี (เรียงใกล้หมดอายุก่อน)</div>
+    <div id="sh-lots-list"></div>
+  </div>
   <div class="qty-row">
     <label>จำนวน</label>
     <div class="qty-stepper">
@@ -660,6 +666,10 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
       <input type="number" id="sh-qty-inp" value="1" min="1">
       <button onclick="step('sh-qty-inp',1)">+</button>
     </div>
+  </div>
+  <div id="sh-exp-row" class="qty-row" style="display:none">
+    <label>วันหมดอายุ (สำหรับล็อตที่รับเข้า)</label>
+    <input type="date" id="sh-exp-inp" style="background:var(--bg2);border:1.5px solid var(--border);border-radius:10px;color:var(--text);padding:8px 10px;font-family:var(--mono);font-size:13px;outline:none">
   </div>
   <div class="sheet-main-btns">
     <button class="btn btn-receive" onclick="sheetDo('receive')">📥 รับเข้าคลัง</button>
@@ -748,6 +758,73 @@ let itemTrack={};
 let activeCat='all';  // current category filter
 let catCodes={};  // {category: code} e.g. {'วัสดุการแพทย์': 'M'}
 
+// ─── EXPIRY / LOT TRACKING ───
+const EXPIRY_CATEGORIES=['ยาและIV','หัตถการ Set'];
+const EXPIRY_WARN_DAYS=30;
+function needsExpiry(item){return EXPIRY_CATEGORIES.includes(item.category);}
+function daysUntil(dateStr){
+  if(!dateStr)return null;
+  const d=new Date(dateStr+'T00:00:00');
+  if(isNaN(d.getTime()))return null;
+  const today=new Date();today.setHours(0,0,0,0);
+  return Math.round((d-today)/86400000);
+}
+function getNearestLot(item){
+  if(!item.lots||!item.lots.length)return null;
+  const sorted=[...item.lots].filter(l=>l.qty>0).sort((a,b)=>new Date(a.exp)-new Date(b.exp));
+  return sorted[0]||null;
+}
+function getExpiryStatus(item){
+  if(!needsExpiry(item))return null;
+  const lot=getNearestLot(item);
+  if(!lot)return null;
+  const d=daysUntil(lot.exp);
+  if(d===null)return null;
+  if(d<0)return'expired';
+  if(d<=EXPIRY_WARN_DAYS)return'warn';
+  return'ok';
+}
+function sumLots(item){
+  if(!item.lots)return item.qty||0;
+  return item.lots.reduce((s,l)=>s+(Number(l.qty)||0),0);
+}
+function addLot(item,qty,expDate){
+  if(!item.lots)item.lots=[];
+  item.lots.push({lotId:'L'+Date.now()+Math.floor(Math.random()*1000),qty:Number(qty),exp:expDate});
+  item.qty=sumLots(item);
+}
+function withdrawFEFO(item,qty){
+  if(!item.lots||!item.lots.length){
+    if(item.qty<qty)return false;
+    item.qty-=qty;
+    return true;
+  }
+  const total=sumLots(item);
+  if(total<qty)return false;
+  let remain=qty;
+  const sorted=[...item.lots].filter(l=>l.qty>0).sort((a,b)=>new Date(a.exp)-new Date(b.exp));
+  for(const lot of sorted){
+    if(remain<=0)break;
+    const take=Math.min(lot.qty,remain);
+    lot.qty-=take;remain-=take;
+  }
+  item.lots=item.lots.filter(l=>l.qty>0);
+  item.qty=sumLots(item);
+  return true;
+}
+function formatExpDate(dateStr){
+  if(!dateStr)return'';
+  const d=new Date(dateStr+'T00:00:00');
+  if(isNaN(d.getTime()))return dateStr;
+  return d.toLocaleDateString('th-TH',{year:'numeric',month:'short',day:'numeric'});
+}
+function getExpiringItems(){
+  return dbData.filter(i=>{
+    const st=getExpiryStatus(i);
+    return st==='warn'||st==='expired';
+  });
+}
+
 function getCatCode(cat){return catCodes[cat]||'';}
 function getItemCode(item){
   // ใช้รหัสถาวรจาก Google Sheet ก่อน
@@ -835,6 +912,10 @@ function syncData(){
     if(data.status==='SUCCESS'&&data.data){
       // แปลงข้อมูลจาก GAS format → app format
       dbData=data.data.map(function(item,idx){
+        let lots=[];
+        if(item.lots){
+          try{lots=JSON.parse(item.lots);}catch(e){lots=[];}
+        }
         return {
           seq: idx+1,
           code: item.code||String(idx+1),  // รหัสถาวรจาก Google Sheet
@@ -843,7 +924,8 @@ function syncData(){
           qty: Number(item.qty)||0,
           unit: item.unit||'ชิ้น',
           min: Number(item.min)||0,
-          max: Number(item.max)||100
+          max: Number(item.max)||100,
+          lots: lots
         };
       });
       setStatus('ok');
@@ -902,7 +984,8 @@ function saveAllToGAS(){
         unit: i.unit,
         min: i.min,
         max: i.max,
-        status: ''
+        status: '',
+        lots: i.lots&&i.lots.length?JSON.stringify(i.lots):''
       };
     });
     return fetch(CONFIG.gasUrl,{
@@ -913,7 +996,7 @@ function saveAllToGAS(){
   .catch(()=>{
     // fallback: save ตรงๆ
     const items=dbData.map(function(i){
-      return {code:i.code||String(i.seq),name:i.name,category:i.category||'',qty:i.qty,unit:i.unit,min:i.min,max:i.max,status:''};
+      return {code:i.code||String(i.seq),name:i.name,category:i.category||'',qty:i.qty,unit:i.unit,min:i.min,max:i.max,status:'',lots:i.lots&&i.lots.length?JSON.stringify(i.lots):''};
     });
     fetch(CONFIG.gasUrl,{method:'POST',body:JSON.stringify({action:'saveAll',sheetId:CONFIG.sheetId,items:items})}).catch(()=>{});
   });
@@ -924,10 +1007,15 @@ function gasPost(b){
   if(b.action==='updateQty'){
     const item=dbData.find(i=>i.seq===b.seq);
     if(item){
-      fetch(CONFIG.gasUrl,{
-        method:'POST',
-        body:JSON.stringify({action:'updateQty',sheetId:CONFIG.sheetId,code:item.code||String(item.seq),qty:b.qty,type:b.type})
-      }).catch(()=>{});
+      if(needsExpiry(item)){
+        // หมวดที่มี lot ต้อง save ทั้งก้อนเพื่อเก็บ lots ให้ตรง
+        saveAllToGAS();
+      } else {
+        fetch(CONFIG.gasUrl,{
+          method:'POST',
+          body:JSON.stringify({action:'updateQty',sheetId:CONFIG.sheetId,code:item.code||String(item.seq),qty:b.qty,type:b.type})
+        }).catch(()=>{});
+      }
     }
   } else if(b.action==='delete'){
     const item=dbData.find(i=>i.seq===b.seq);
@@ -965,6 +1053,33 @@ function openSheet(seq){
   document.getElementById('sh-qty-val').innerHTML=`<span style="color:${colors[sc]};font-size:22px">${item.qty}</span> <span style="font-size:14px;color:var(--text2)">${item.unit}</span>`;
   document.getElementById('sh-tag').innerHTML=`<span class="si-tag ${sc}">${getStockLabel(sc)}</span>`;
   document.getElementById('sh-qty-inp').value=1;
+
+  const expRow=document.getElementById('sh-exp-row');
+  const lotsBox=document.getElementById('sh-lots-box');
+  if(needsExpiry(item)){
+    expRow.style.display='flex';
+    document.getElementById('sh-exp-inp').value='';
+    if(item.lots&&item.lots.length){
+      lotsBox.style.display='block';
+      const sorted=[...item.lots].filter(l=>l.qty>0).sort((a,b)=>new Date(a.exp)-new Date(b.exp));
+      document.getElementById('sh-lots-list').innerHTML=sorted.map(l=>{
+        const d=daysUntil(l.exp);
+        const expired=d<0;
+        const warn=!expired&&d<=EXPIRY_WARN_DAYS;
+        const c=expired?'var(--red)':warn?'var(--orange)':'var(--text2)';
+        return `<div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg3);border-radius:8px;padding:8px 10px;margin-bottom:5px;font-size:12px">
+          <span style="color:${c};font-weight:600">${expired?'⚠️ หมดอายุแล้ว':'⏰'} ${formatExpDate(l.exp)}</span>
+          <span style="font-family:var(--mono);font-weight:700">${l.qty} ${item.unit}</span>
+        </div>`;
+      }).join('');
+    } else {
+      lotsBox.style.display='none';
+    }
+  } else {
+    expRow.style.display='none';
+    lotsBox.style.display='none';
+  }
+
   document.getElementById('sheet-bg').classList.add('open');
   document.getElementById('action-sheet').classList.add('open');
 }
@@ -978,10 +1093,27 @@ function sheetDo(type){
   const qty=Number(document.getElementById('sh-qty-inp').value);
   if(qty<=0)return alert('กรุณาระบุจำนวนครับ');
   const item=curSheetItem;
-  if(type==='receive'){item.qty+=qty;addHist(`📥 รับเข้า: ${item.name}`,`+${qty} ${item.unit}`,'pos',item.seq);}
-  else{if(item.qty<qty)return alert('ของในคลังไม่พอครับ');item.qty-=qty;addHist(`📤 เบิกออก: ${item.name}`,`-${qty} ${item.unit}`,'neg',item.seq);}
+  if(type==='receive'){
+    if(needsExpiry(item)){
+      const expDate=document.getElementById('sh-exp-inp').value;
+      if(!expDate)return alert('กรุณาระบุวันหมดอายุของล็อตนี้ครับ');
+      addLot(item,qty,expDate);
+    } else {
+      item.qty+=qty;
+    }
+    addHist(`📥 รับเข้า: ${item.name}`,`+${qty} ${item.unit}`,'pos',item.seq);
+  } else {
+    if(needsExpiry(item)){
+      const ok=withdrawFEFO(item,qty);
+      if(!ok)return alert('ของในคลังไม่พอครับ');
+    } else {
+      if(item.qty<qty)return alert('ของในคลังไม่พอครับ');
+      item.qty-=qty;
+    }
+    addHist(`📤 เบิกออก: ${item.name}`,`-${qty} ${item.unit}`,'neg',item.seq);
+  }
   renderList();closeSheet();
-  gasPost({action:'updateQty',sheetId:CONFIG.sheetId,seq:item.seq,type,qty});
+  gasPost({action:'updateQty',sheetId:CONFIG.sheetId,seq:item.seq,type,qty,item});
 }
 function sheetQR(){const s=curSheetItem?.seq;closeSheet();showQR(s);}
 function sheetDel(){
@@ -1084,11 +1216,18 @@ function loadCatCodes(){
 function renderList(){
   const el=document.getElementById('stock-list');
   const q=(document.getElementById('search-inp').value||'').toLowerCase();
-  let tot=0,dan=0,wrn=0;
-  dbData.forEach(i=>{tot++;const sc=getStockClass(i);if(sc==='danger')dan++;else if(sc==='warn'||sc==='low')wrn++;});
+  let tot=0,dan=0,wrn=0,exp=0;
+  dbData.forEach(i=>{
+    tot++;
+    const sc=getStockClass(i);
+    if(sc==='danger')dan++;else if(sc==='warn'||sc==='low')wrn++;
+    const es=getExpiryStatus(i);
+    if(es==='warn'||es==='expired')exp++;
+  });
   document.getElementById('sum-total').innerText=tot;
   document.getElementById('sum-danger').innerText=dan;
   document.getElementById('sum-warn').innerText=wrn;
+  const expEl=document.getElementById('sum-exp');if(expEl)expEl.innerText=exp;
   const bd=document.getElementById('badge-stock');
   if(dan>0){bd.innerText=dan;bd.classList.add('show');}else bd.classList.remove('show');
 
@@ -1111,11 +1250,22 @@ function renderList(){
     const bgColor=sc==='danger'?'rgba(239,68,68,.08)':sc==='low'?'rgba(249,115,22,.06)':sc==='warn'?'rgba(245,158,11,.05)':'rgba(16,185,129,.03)';
     const borderColor=sc==='danger'?'rgba(239,68,68,.5)':sc==='low'?'rgba(249,115,22,.4)':sc==='warn'?'rgba(245,158,11,.35)':'rgba(16,185,129,.3)';
     const barColor=sc==='danger'?'var(--red)':sc==='low'?'#f97316':sc==='warn'?'#eab308':'var(--green)';
+    const expSt=getExpiryStatus(i);
+    let expBadge='';
+    if(expSt){
+      const lot=getNearestLot(i);
+      const d=daysUntil(lot.exp);
+      const expColor=expSt==='expired'?'var(--red)':'var(--purple)';
+      const expBg=expSt==='expired'?'var(--red-light)':'var(--purple-light)';
+      const expText=expSt==='expired'?`หมดอายุแล้ว ${formatExpDate(lot.exp)}`:`หมดอายุใน ${d} วัน (${formatExpDate(lot.exp)})`;
+      expBadge=`<div style="margin-top:4px"><span style="font-size:10px;padding:2px 7px;border-radius:5px;background:${expBg};color:${expColor};font-weight:600">⏰ ${expText}</span></div>`;
+    }
     return `<div class="stock-item" style="border-color:${borderColor};background:${bgColor}" onclick="openSheet(${i.seq})">
       <div class="si-num" style="color:${sc==='danger'?'var(--red)':sc==='low'?'#ea580c':sc==='warn'?'#ca8a04':'var(--text3)'}">${i.code||i.seq}</div>
       <div class="si-info">
         <div class="si-name">${i.name}</div>
         ${catBadge?`<div class="si-cat-row">${catBadge}</div>`:''}
+        ${expBadge}
         <!-- แถบเรียบ -->
         <div style="height:8px;background:var(--bg3);border-radius:4px;overflow:hidden;margin-top:6px;margin-bottom:4px">
           <div style="height:100%;width:${pct}%;background:${barColor};border-radius:4px;transition:width .3s"></div>
@@ -1166,7 +1316,14 @@ function submitManual(){
   const qty=Number(document.getElementById('m-qty').value);
   if(!seq)return alert('กรุณาเลือกรายการก่อน');if(qty<=0)return alert('ระบุจำนวนด้วย');
   const item=dbData.find(i=>i.seq===seq);if(!item)return;
-  item.qty+=qty;addHist(`📥 รับเข้า: ${item.name}`,`+${qty} ${item.unit}`,'pos',item.seq);
+  if(needsExpiry(item)){
+    const expDate=prompt('กรุณาระบุวันหมดอายุของล็อตนี้ (YYYY-MM-DD):');
+    if(!expDate)return;
+    addLot(item,qty,expDate);
+  } else {
+    item.qty+=qty;
+  }
+  addHist(`📥 รับเข้า: ${item.name}`,`+${qty} ${item.unit}`,'pos',item.seq);
   renderList();alert(`✅ รับเข้า ${item.name} ${qty} ${item.unit}`);
   document.getElementById('m-code').value='';document.getElementById('m-name').value='ยังไม่ได้เลือก';document.getElementById('m-qty').value='1';
   gasPost({action:'updateQty',sheetId:CONFIG.sheetId,seq,type:'receive',qty});
@@ -1403,8 +1560,24 @@ function showScanResult(item){
 function scanDo(type){
   if(!curScanItem)return;const qty=Number(document.getElementById('scan-qty').value);if(qty<=0)return alert('ระบุจำนวนด้วย');
   const item=curScanItem;
-  if(type==='receive'){item.qty+=qty;addHist(`📥 รับเข้า (QR): ${item.name}`,`+${qty} ${item.unit}`,'pos',item.seq);alert(`✅ รับเข้า ${item.name} ${qty} ${item.unit}`);}
-  else{if(item.qty<qty)return alert('ของในคลังไม่พอ');item.qty-=qty;addHist(`📤 เบิกออก (QR): ${item.name}`,`-${qty} ${item.unit}`,'neg',item.seq);alert(`✅ เบิกออก ${item.name} ${qty} ${item.unit}`);}
+  if(type==='receive'){
+    if(needsExpiry(item)){
+      const expDate=prompt('กรุณาระบุวันหมดอายุของล็อตนี้ (YYYY-MM-DD):');
+      if(!expDate)return;
+      addLot(item,qty,expDate);
+    } else {
+      item.qty+=qty;
+    }
+    addHist(`📥 รับเข้า (QR): ${item.name}`,`+${qty} ${item.unit}`,'pos',item.seq);alert(`✅ รับเข้า ${item.name} ${qty} ${item.unit}`);
+  } else {
+    if(needsExpiry(item)){
+      if(!withdrawFEFO(item,qty))return alert('ของในคลังไม่พอ');
+    } else {
+      if(item.qty<qty)return alert('ของในคลังไม่พอ');
+      item.qty-=qty;
+    }
+    addHist(`📤 เบิกออก (QR): ${item.name}`,`-${qty} ${item.unit}`,'neg',item.seq);alert(`✅ เบิกออก ${item.name} ${qty} ${item.unit}`);
+  }
   renderList();gasPost({action:'updateQty',sheetId:CONFIG.sheetId,seq:item.seq,type,qty});resetScan();
 }
 function resetScan(){curScanItem=null;document.getElementById('scan-res').style.display='none';}
@@ -1646,9 +1819,36 @@ function showFilterModal(type){
   if(type==='all'){items=dbData;title=`📦 รายการทั้งหมด (${items.length})`;}
   else if(type==='danger'){items=dbData.filter(i=>getStockClass(i)==='danger');title=`🔴 ของหมด (${items.length})`;}
   else if(type==='warn'){items=dbData.filter(i=>{const sc=getStockClass(i);return sc==='warn'||sc==='low';});title=`⚠️ ใกล้หมด (${items.length})`;}
+  else if(type==='expiry'){
+    items=getExpiringItems().sort((a,b)=>{
+      const da=daysUntil(getNearestLot(a)?.exp), db=daysUntil(getNearestLot(b)?.exp);
+      return (da??999)-(db??999);
+    });
+    title=`⏰ ใกล้หมดอายุ (${items.length})`;
+  }
   const colors={ok:'var(--green)',warn:'#ca8a04',low:'#ea580c',danger:'var(--red)'};
   document.getElementById('filter-modal-title').innerText=title;
   if(!items.length){document.getElementById('filter-modal-list').innerHTML=`<div style="text-align:center;padding:32px;color:var(--text3)">ไม่มีรายการ</div>`;openModal('filter-modal');return;}
+  if(type==='expiry'){
+    document.getElementById('filter-modal-list').innerHTML=items.map(i=>{
+      const lot=getNearestLot(i);
+      const d=daysUntil(lot.exp);
+      const es=getExpiryStatus(i);
+      const c=es==='expired'?'var(--red)':'var(--purple)';
+      const expText=es==='expired'?`หมดอายุแล้ว`:`เหลือ ${d} วัน`;
+      return `<div style="background:var(--bg2);border:1.5px solid var(--border);border-radius:var(--r);padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px;cursor:pointer" onclick="closeModal('filter-modal');openSheet(${i.seq})">
+        <div style="width:28px;height:28px;background:var(--bg3);border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;color:var(--text3);font-weight:600;flex-shrink:0">${i.code||i.seq}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${i.name}</div>
+          ${i.category?`<div style="font-size:10px;color:var(--indigo);margin-top:1px">${i.category}</div>`:''}
+          <div style="font-size:11px;color:${c};font-weight:700;margin-top:4px">⏰ ${expText} — ${formatExpDate(lot.exp)}</div>
+        </div>
+        <span class="si-tag" style="background:${es==='expired'?'var(--red-light)':'var(--purple-light)'};color:${c}">${lot.qty} ${i.unit}</span>
+      </div>`;
+    }).join('');
+    openModal('filter-modal');
+    return;
+  }
   document.getElementById('filter-modal-list').innerHTML=items.map(i=>{
     const sc=getStockClass(i);const pct=Math.min(100,(i.qty/Math.max(i.max,1))*100);
     return `<div style="background:var(--bg2);border:1.5px solid var(--border);border-radius:var(--r);padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px;cursor:pointer" onclick="closeModal('filter-modal');openSheet(${i.seq})">
