@@ -108,6 +108,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
 .menu-title { font-size: 15px; font-weight: 700; color: var(--text); }
 .menu-desc { font-size: 11px; color: var(--text2); line-height: 1.5; }
 .menu-badge { position: absolute; top: 12px; right: 12px; background: var(--red); color: #fff; border-radius: 20px; font-size: 10px; font-weight: 700; padding: 2px 7px; display: none; }
+.menu-badge.purple { background: var(--purple); }
 .menu-badge.show { display: block; }
 .quick-scan-btn { background: linear-gradient(135deg, var(--purple) 0%, var(--indigo) 100%); border-radius: var(--r2); padding: 18px; cursor: pointer; box-shadow: 0 4px 16px rgba(139,92,246,.35); transition: all .15s; display: flex; align-items: center; gap: 14px; margin-bottom: 12px; border: none; width: 100%; font-family: var(--font); }
 .quick-scan-btn:active { transform: scale(.98); }
@@ -365,6 +366,11 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
           <div class="menu-card menu-receive" onclick="goPage('receive')" style="border-color:rgba(16,185,129,.2);background:linear-gradient(135deg,#f0fdf4 0%,#fff 100%)">
             <div class="menu-icon">📥</div>
             <div><div class="menu-title" style="color:var(--green)">รับของเข้า</div><div class="menu-desc">Claude AI / มือ</div></div>
+          </div>
+          <div class="menu-card menu-expiry" onclick="showFilterModal('expiry')" style="border-color:rgba(139,92,246,.25);background:linear-gradient(135deg,#f5f3ff 0%,#fff 100%)">
+            <div class="menu-badge" id="badge-expiry">0</div>
+            <div class="menu-icon">⏰</div>
+            <div><div class="menu-title" style="color:var(--purple)">ใกล้หมดอายุ</div><div class="menu-desc">ยา / Set ที่ต้องเช็ค</div></div>
           </div>
           <div class="menu-card menu-history" onclick="goPage('history')" style="border-color:rgba(245,158,11,.2);background:linear-gradient(135deg,#fffbeb 0%,#fff 100%)">
             <div class="menu-icon">📋</div>
@@ -1230,6 +1236,10 @@ function renderList(){
   const expEl=document.getElementById('sum-exp');if(expEl)expEl.innerText=exp;
   const bd=document.getElementById('badge-stock');
   if(dan>0){bd.innerText=dan;bd.classList.add('show');}else bd.classList.remove('show');
+  const bdExp=document.getElementById('badge-expiry');
+  if(bdExp){
+    if(exp>0){bdExp.innerText=exp;bdExp.classList.add('show','purple');}else bdExp.classList.remove('show');
+  }
 
   let list=dbData.filter(i=>{
     const matchCat=activeCat==='all'||i.category===activeCat;
