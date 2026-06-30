@@ -94,7 +94,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
 .stat-ok .sv { color: var(--green); }
 .stat-dan .sv { color: var(--red); }
 .stat-wrn .sv { color: var(--orange); }
-.stat-exp .sv { color: var(--purple); }
+.stat-exp .sv { color: var(--red); }
 .menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
 .menu-card { background: var(--bg2); border-radius: var(--r2); padding: 20px 16px; cursor: pointer; box-shadow: var(--shadow); transition: all .15s; border: 1.5px solid transparent; display: flex; flex-direction: column; gap: 10px; position: relative; overflow: hidden; }
 .menu-card:active { transform: scale(.97); }
@@ -367,10 +367,10 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
             <div class="menu-icon">📥</div>
             <div><div class="menu-title" style="color:var(--green)">รับของเข้า</div><div class="menu-desc">Claude AI / มือ</div></div>
           </div>
-          <div class="menu-card menu-expiry" onclick="showFilterModal('expiry')" style="border-color:rgba(139,92,246,.25);background:linear-gradient(135deg,#f5f3ff 0%,#fff 100%)">
+          <div class="menu-card menu-expiry" onclick="showFilterModal('expiry')" style="border-color:rgba(239,68,68,.3);background:linear-gradient(135deg,#fef2f2 0%,#fff 100%)">
             <div class="menu-badge" id="badge-expiry">0</div>
             <div class="menu-icon">⏰</div>
-            <div><div class="menu-title" style="color:var(--purple)">ใกล้หมดอายุ</div><div class="menu-desc">ยา / Set ที่ต้องเช็ค</div></div>
+            <div><div class="menu-title" style="color:var(--red)">ใกล้หมดอายุ</div><div class="menu-desc">ยา / Set ที่ต้องเช็ค</div></div>
           </div>
           <div class="menu-card menu-history" onclick="goPage('history')" style="border-color:rgba(245,158,11,.2);background:linear-gradient(135deg,#fffbeb 0%,#fff 100%)">
             <div class="menu-icon">📋</div>
@@ -1238,7 +1238,7 @@ function renderList(){
   if(dan>0){bd.innerText=dan;bd.classList.add('show');}else bd.classList.remove('show');
   const bdExp=document.getElementById('badge-expiry');
   if(bdExp){
-    if(exp>0){bdExp.innerText=exp;bdExp.classList.add('show','purple');}else bdExp.classList.remove('show');
+    if(exp>0){bdExp.innerText=exp;bdExp.classList.add('show');}else bdExp.classList.remove('show');
   }
 
   let list=dbData.filter(i=>{
